@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { marcarLogin, sessaoVencida, vigiarSessao } from "@/lib/sessao";
 import Sistema from "@/sistema/Sistema";
 
 // Fluxo de acesso: e-mail e senha → código do app autenticador (2ª etapa) → sistema.
@@ -13,6 +14,7 @@ export default function Pagina() {
   const avaliar = useCallback(async () => {
     const { data: s } = await supabase.auth.getSession();
     if (!s.session) return setEtapa("login");
+    if (sessaoVencida()) { await supabase.auth.signOut(); return setEtapa("login"); }
     const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
     if (aal?.currentLevel === "aal2") return setEtapa("pronto");
     const { data: f } = await supabase.auth.mfa.listFactors();
@@ -28,6 +30,8 @@ export default function Pagina() {
     });
     return () => data.subscription.unsubscribe();
   }, [avaliar]);
+
+  useEffect(() => (etapa === "pronto" ? vigiarSessao() : undefined), [etapa]);
 
   if (etapa === "pronto") return <Sistema />;
   return (
@@ -58,6 +62,7 @@ function Login({ onOk }: { onOk: () => void }) {
     const { error } = await supabase.auth.signInWithPassword({ email, password: senha });
     setOcupado(false);
     if (error) return setErro("E-mail ou senha incorretos.");
+    marcarLogin();
     onOk();
   }
   return (

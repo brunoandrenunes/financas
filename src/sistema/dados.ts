@@ -38,15 +38,15 @@ export async function carregar(anoPedido?: number) {
 
   const [lanc, cats, subs, orc, contas, ini, confs, receb, movs, uso] = await Promise.all([
     todas("v_lancamentos", "id,data,grupo,categoria,subcategoria,subcategoria_id,valor,descricao,composicao,suplementa_orcamento,e_suplementacao,origem", (q) => q.eq("ano", ano).order("data").order("id")),
-    todas("categorias", "id,grupo,nome,ativa,suplementa_automaticamente"),
-    todas("subcategorias", "id,categoria_id,nome,ativa"),
-    todas("orcamentos", "id,ano,grupo,categoria_id,valor_base,recebe_suplementacoes", (q) => q.in("ano", [ano, ano + 1])),
+    todas("categorias", "id,grupo,nome,ativa,suplementa_automaticamente", (q) => q.order("id")),
+    todas("subcategorias", "id,categoria_id,nome,ativa", (q) => q.order("id")),
+    todas("orcamentos", "id,ano,grupo,categoria_id,valor_base,recebe_suplementacoes", (q) => q.in("ano", [ano, ano + 1]).order("id")),
     todas("contas", "id,instituicao,nome,tipo,ativa,ordem,observacao", (q) => q.order("ordem").order("id")),
     todas("saldo_inicial_itens", "ano,descricao,valor", (q) => q.eq("ano", ano).order("id")),
     todas("conferencias", "id,data,saldo_calculado,total_informado,rendimento", (q) => q.order("data").order("id")),
     todas("recebiveis", "*", (q) => q.order("id")),
     todas("recebimentos", "id,recebivel_id,data,tipo,valor,conta_id", (q) => q.order("data").order("id")),
-    todas("lancamentos", "subcategoria_id"),
+    todas("lancamentos", "subcategoria_id", (q) => q.order("id")),
   ]);
 
   const usoSub: Record<number, number> = {};
@@ -108,6 +108,12 @@ export async function carregar(anoPedido?: number) {
 export type Dados = Awaited<ReturnType<typeof carregar>>;
 
 /* ---------- gravações ---------- */
+// update/delete barrados pela RLS ou com id inexistente não dão erro: confere que gravou.
+async function umRegistro(q: PromiseLike<{ data: unknown[] | null; error: { message: string } | null }>) {
+  const { data, error } = await q;
+  falhou(error);
+  if (!data?.length) throw new Error("Nada foi gravado: o registro não existe mais ou o ano está fechado. Recarregue a página.");
+}
 type NovoLancamento = { data: string; subcategoria_id: number; valor: number; descricao?: string; suplementa_orcamento?: boolean };
 
 export const api = {
@@ -118,17 +124,14 @@ export const api = {
     falhou(error);
   },
   async alterarLancamento(id: number, l: NovoLancamento) {
-    const { error } = await supabase.from("lancamentos").update({ ...l, atualizado_em: new Date().toISOString() }).eq("id", id);
-    falhou(error);
+    await umRegistro(supabase.from("lancamentos").update({ ...l, atualizado_em: new Date().toISOString() }).eq("id", id).select("id"));
   },
   async excluirLancamento(id: number) {
-    const { error } = await supabase.from("lancamentos").delete().eq("id", id);
-    falhou(error);
+    await umRegistro(supabase.from("lancamentos").delete().eq("id", id).select("id"));
   },
 
   async orcamento(id: number, valor: number) {
-    const { error } = await supabase.from("orcamentos").update({ valor_base: valor, atualizado_em: new Date().toISOString() }).eq("id", id);
-    falhou(error);
+    await umRegistro(supabase.from("orcamentos").update({ valor_base: valor, atualizado_em: new Date().toISOString() }).eq("id", id).select("id"));
   },
   async novoOrcamento(ano: number, grupo: string, categoria_id: number) {
     const { error } = await supabase.from("orcamentos").insert({ ano, grupo, categoria_id, valor_base: 0 });
@@ -138,6 +141,13 @@ export const api = {
   async conferencia(data: string, saldos: { conta_id: number; saldo: number }[]) {
     const { error } = await supabase.rpc("registrar_conferencia", { p_data: data, p_saldos: saldos });
     falhou(error);
+  },
+  async excluirConferencia(id: number) {
+    const { error } = await supabase.rpc("excluir_conferencia", { p_id: id });
+    falhou(error);
+  },
+  async excluirRecebimento(id: number) {
+    await umRegistro(supabase.from("recebimentos").delete().eq("id", id).select("id"));
   },
   async movimentoRecebivel(m: { recebivel_id: number; data: string; tipo: string; valor: number; conta_id: number }) {
     const { error } = await supabase.from("recebimentos").insert(m);
@@ -149,16 +159,14 @@ export const api = {
     falhou(error);
   },
   async categoria(id: number, campos: { nome?: string; ativa?: boolean }) {
-    const { error } = await supabase.from("categorias").update(campos).eq("id", id);
-    falhou(error);
+    await umRegistro(supabase.from("categorias").update(campos).eq("id", id).select("id"));
   },
   async novaSubcategoria(categoria_id: number, nome: string) {
     const { error } = await supabase.from("subcategorias").insert({ categoria_id, nome });
     falhou(error);
   },
   async subcategoria(id: number, campos: { nome?: string; ativa?: boolean }) {
-    const { error } = await supabase.from("subcategorias").update(campos).eq("id", id);
-    falhou(error);
+    await umRegistro(supabase.from("subcategorias").update(campos).eq("id", id).select("id"));
   },
   async novaConta(instituicao: string, nome: string, tipo: string) {
     const { data: ult } = await supabase.from("contas").select("ordem").order("ordem", { ascending: false }).limit(1);
@@ -166,12 +174,15 @@ export const api = {
     falhou(error);
   },
   async conta(id: number, campos: { ativa?: boolean }) {
-    const { error } = await supabase.from("contas").update(campos).eq("id", id);
-    falhou(error);
+    await umRegistro(supabase.from("contas").update(campos).eq("id", id).select("id"));
   },
 
   async abrirExercicio(ano: number) { const { error } = await supabase.rpc("abrir_exercicio", { p_ano: ano }); falhou(error); },
-  async fecharExercicio(ano: number) { const { error } = await supabase.rpc("fechar_exercicio", { p_ano: ano }); falhou(error); },
+  async fecharExercicio(ano: number) {
+    const { data, error } = await supabase.rpc("fechar_exercicio", { p_ano: ano });
+    falhou(error);
+    return String(data ?? "");
+  },
   async reabrirExercicio(ano: number) { const { error } = await supabase.rpc("reabrir_exercicio", { p_ano: ano }); falhou(error); },
 
   async sair() { await supabase.auth.signOut(); },

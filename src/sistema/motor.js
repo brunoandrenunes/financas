@@ -72,10 +72,12 @@ const pendentes = () => RECS.filter(r=>aReceber(r)>0.005 || custoAPagar(r)>0.005
 
 /* ---------- cálculos ---------- */
 const mOf = r => +r.d.slice(5,7);
-const lastDate = () => rows.reduce((m,r)=>r.d>m?r.d:m,'') || `${YEAR}-01-01`;
+const lastDate = () => [...rows, ...movsDoAno()].reduce((m,r)=>r.d>m?r.d:m,'') || `${YEAR}-01-01`;
 const nMeses = () => mOf({d:lastDate()});
-const mesParcial = () => { const d=lastDate(); return !['30','31'].includes(d.slice(8)) && !(d.slice(5,7)==='02'&&d.slice(8)>='28'); };
-const mesesCompletos = () => Math.max(1, nMeses() - (mesParcial()?1:0));
+const mesParcial = (d=lastDate()) => {
+  return !['30','31'].includes(d.slice(8)) && !(d.slice(5,7)==='02'&&d.slice(8)>='28'); };
+// Para médias: não conta meses futuros (lançamento agendado com data adiante).
+const mesesCompletos = () => { const h=hojeISO(), d=lastDate(), ref=(h<d&&h.slice(0,4)==YEAR)?h:d; return Math.max(1, +ref.slice(5,7) - (mesParcial(ref)?1:0)); };
 function byMonth(filter){ const a=Array(12).fill(0); rows.forEach(r=>{ if(filter(r)) a[mOf(r)-1]+=r.v; }); return a; }
 function flows(){
   const rec=byMonth(r=>r.g==='Receita'), des=byMonth(r=>r.g==='Despesa'), inv=byMonth(r=>r.g==='Investimento'), obr=byMonth(r=>r.g==='Obra');
@@ -477,7 +479,12 @@ function fillLanc(){
   $('l-foot').innerHTML=`<tr><td colspan="5">Receitas ${N(t('Receita'))} · Despesas ${N(t('Despesa'))} · Investimentos ${N(t('Investimento'))} · Obra ${N(t('Obra'))}</td><td class="v">${N(t('Receita')-t('Despesa')-t('Investimento')-t('Obra'))}</td></tr>`;
   $('l-count').textContent=`${list.length} de ${rows.length} lançamentos`;
 }
-function parseMoney(s){ s=String(s).trim().replace(/R\$\s?/,''); if(!s) return NaN; s=s.replace(/\./g,'').replace(',','.'); return Math.round(parseFloat(s)*100)/100; }
+function parseMoney(s){
+  s=String(s).trim().replace(/^R\$\s?/,'').replace(/\s/g,''); if(!s) return NaN;
+  if(/^-?\d+\.\d{1,2}$/.test(s)) return Math.round(parseFloat(s)*100)/100;            // 1234.56 (ponto decimal)
+  if(!/^-?(\d{1,3}(\.\d{3})+|\d+)(,\d{1,2})?$/.test(s)) return NaN;                     // 1.234,56 ou 1234,56
+  return Math.round(parseFloat(s.replace(/\./g,'').replace(',','.'))*100)/100;
+}
 function parsePaste(txt){
   const ok=[],err=[];
   txt.split(/\r?\n/).forEach((line,i)=>{ if(!line.trim()) return; const c=line.split(/\t|;/).map(x=>x.trim());
@@ -582,7 +589,7 @@ function recCard(r, ativas){
     </div>
     <div class="note">Receber não é receita: é venda de um bem. O valor entra no saldo abaixo do resultado, na linha "Venda do apartamento" da DRE, e o pagamento do custo sai na mesma linha.${r.recebidoAntes?` Os ${R(r.recebidoAntes)} recebidos antes do sistema estão no saldo inicial de 2026.`:''}</div>
     ${r.movs.length?`<table><thead><tr><th>Data</th><th>Movimento</th><th>Conta</th><th class="v">Valor</th></tr></thead><tbody>
-      ${r.movs.map(m=>`<tr><td class="num">${dBR(m.d)}</td><td>${m.tipo==='recebimento'?'Recebimento':esc(r.custoDesc)+' paga'}</td><td>${esc(contaNome(CONTAS.find(x=>x.id===m.conta)))}</td><td class="v${m.tipo==='custo'?' neg':''}">${N(efeitoMov(m))}</td></tr>`).join('')}
+      ${r.movs.map(m=>`<tr><td class="num">${dBR(m.d)}</td><td>${m.tipo==='recebimento'?'Recebimento':esc(r.custoDesc)+' paga'}</td><td>${esc(contaNome(CONTAS.find(x=>x.id===m.conta)))}</td><td class="v${m.tipo==='custo'?' neg':''}">${N(efeitoMov(m))}${FECHADO||m.d.slice(0,4)!=YEAR?'':` <button class="linkbtn" type="button" data-del-mov="${m.id}">excluir</button>`}</td></tr>`).join('')}
     </tbody></table>`:''}
     ${(aReceber(r)>0.005||custoAPagar(r)>0.005)&&!FECHADO?`<form class="form-row" data-rec-form="${r.id}">
       <div class="field" style="flex:0 1 190px"><label>Movimento</label><select name="tipo"><option value="recebimento">Recebimento</option><option value="custo">Pagamento: ${esc(r.custoDesc)}</option></select></div>
@@ -619,7 +626,7 @@ function renderConf(){
         </div>
         ${RECS.map(r=>recCard(r,ativas)).join('')}
         ${hist.length?`<div class="panel"><h2>Últimas conferências</h2><table><thead><tr><th>Data</th><th class="v">Total informado</th><th class="v">Rendimento</th></tr></thead><tbody>
-          ${hist.map(c=>`<tr><td class="num">${dBR(c.data)}</td><td class="v">${N(c.total)}</td><td class="v${c.rend<0?' neg':''}">${N(c.rend)}</td></tr>`).join('')}</tbody></table></div>`:''}
+          ${hist.map(c=>`<tr><td class="num">${dBR(c.data)}</td><td class="v">${N(c.total)}</td><td class="v${c.rend<0?' neg':''}">${N(c.rend)}${FECHADO||c.data.slice(0,4)!=YEAR?'':` <button class="linkbtn" type="button" data-del-conf="${c.id}">excluir</button>`}</td></tr>`).join('')}</tbody></table></div>`:''}
       </div>
     </div></div>`;
   $('cf-add').onclick=()=>{ $('cf-add-panel').hidden=!$('cf-add-panel').hidden; if(!$('cf-add-panel').hidden) $('cfn-inst').focus(); };
@@ -628,9 +635,17 @@ function renderConf(){
   $('cf-d').onchange=e=>{ confDate=e.target.value; calcConf(); };
   $('cf-ok').onclick=()=>{ const ren=calcConf();
     if(confDate.slice(0,4)!=YEAR){ toast(`A data precisa ser de ${YEAR}.`); return; }
+    const ult=D.conferencias.filter(c=>c.data.slice(0,4)==YEAR).map(c=>c.data).sort().pop();
+    if(ult&&confDate<ult){ toast(`Já existe conferência em ${dBR(ult)}, posterior a esta data. Exclua-a antes, se precisar refazer.`, true); return; }
     if(D.conferencias.some(c=>c.data===confDate)&&!confirm(`Já existe uma conferência em ${dBR(confDate)}. Registrar outra?`)) return;
     const saldos=ativas.map(c=>({conta_id:c.id,saldo:confValores[c.id]||0}));
     agir(()=>api.conferencia(confDate,saldos), Math.abs(ren)<0.005?`Conferência de ${dBR(confDate)} registrada, sem diferença.`:`Conferência de ${dBR(confDate)} registrada. Rendimento de ${R(ren)} lançado.`); };
+  el.querySelectorAll('[data-del-mov]').forEach(b=>b.onclick=()=>{ const m=RECS.flatMap(r=>r.movs).find(x=>x.id==b.dataset.delMov);
+    if(!confirm(`Excluir o movimento de ${dBR(m.d)} no valor de ${R(m.v)}?`)) return;
+    agir(()=>api.excluirRecebimento(m.id), 'Movimento excluído.', ()=>{ if(m.conta!=null) confValores[m.conta]=Math.round(((confValores[m.conta]||0)-efeitoMov(m))*100)/100; }); });
+  el.querySelectorAll('[data-del-conf]').forEach(b=>b.onclick=()=>{ const c=D.conferencias.find(x=>x.id==b.dataset.delConf);
+    if(!confirm(`Excluir a conferência de ${dBR(c.data)}?${c.rend?`\n\nO lançamento de rendimento de ${R(c.rend)} gerado por ela também será excluído.`:''}`)) return;
+    agir(()=>api.excluirConferencia(c.id), `Conferência de ${dBR(c.data)} excluída.`); });
   el.querySelectorAll('form[data-rec-form]').forEach(f=>{
     const r=RECS.find(x=>x.id==f.dataset.recForm);
     f.elements.tipo.onchange=()=>{ const rc=f.elements.tipo.value==='recebimento'; f.querySelector('[data-conta-l]').textContent=rc?'Conta de destino':'Conta de onde saiu'; if(!rc) f.elements.valor.value=fmtN.format(custoAPagar(r)); };
@@ -643,12 +658,12 @@ function renderConf(){
       const fim=tipo==='recebimento'&&aReceber(r)-v<0.005&&custoAPagar(r)>0.005?` Parcela 100% recebida: falta pagar ${r.custoDesc.toLowerCase()} de ${R(custoAPagar(r))}.`:'';
       agir(()=>api.movimentoRecebivel({recebivel_id:r.id,data,tipo,valor:v,conta_id:conta}),
         (tipo==='recebimento'?`Recebimento de ${R(v)} registrado em ${contaNome(c)}. Entra no saldo como venda do apartamento, não como receita.`:`Pagamento de ${R(v)} registrado.`)+fim,
-        ()=>{ confValores[conta]=(confValores[conta]||0)+(tipo==='recebimento'?v:-v); }); };
+        ()=>{ confValores[conta]=Math.round(((confValores[conta]||0)+(tipo==='recebimento'?v:-v))*100)/100; }); };
   });
   calcConf();
 }
 function calcConf(){
-  const inf=sum(CONTAS.filter(c=>c.ativa).map(c=>confValores[c.id]||0));
+  const inf=Math.round(sum(CONTAS.filter(c=>c.ativa).map(c=>confValores[c.id]||0))*100)/100;
   const calc=saldoAte(confDate), ren=inf-calc;
   $('cf-tot').textContent=N(inf); $('cf-calc').textContent=N(calc); $('cf-inf').textContent=N(inf); $('cf-ren').textContent=N(ren); $('cf-ren').className='v'+(ren<0?' neg':'');
   $('cf-note').textContent= ren<0 ? 'Diferença negativa: pode ser um lançamento esquecido, ou IR de resgate. Confira antes de registrar.' : 'A diferença vira um lançamento em Receita | Rendimentos | Rendimentos. IR de resgate já está descontado, porque os saldos são líquidos.';
@@ -758,7 +773,7 @@ function renderVirada(){
     const av=[]; if(!conf31) av.push(`- Ainda não há conferência de saldos em 31/12/${YEAR}; o saldo inicial de ${YEAR+1} entra como valor único.`);
     if(hojeISO()<`${YEAR}-12-31`) av.push(`- O ano ainda não terminou.`);
     if(!confirm(`Fechar o exercício ${YEAR}?\n\n${YEAR} fica bloqueado para edição (dá para reabrir) e o saldo final vira o saldo inicial de ${YEAR+1}.${av.length?'\n\n'+av.join('\n'):''}`)) return;
-    agir(()=>api.fecharExercicio(YEAR), `Exercício ${YEAR} fechado. Saldo inicial de ${YEAR+1} atualizado.`); });
+    let modo=''; agir(async()=>{ modo=await api.fecharExercicio(YEAR); }, ()=>`Exercício ${YEAR} fechado. Saldo inicial de ${YEAR+1} transportado ${modo}.`); });
   v.querySelector('#vr-reabrir')?.addEventListener('click',()=>{ if(!confirm(`Reabrir ${YEAR} para correções?\n\nDepois de corrigir, feche de novo para atualizar o saldo inicial de ${YEAR+1}.`)) return; agir(()=>api.reabrirExercicio(YEAR), `${YEAR} reaberto.`); });
   v.querySelector('#vr-ir')?.addEventListener('click',()=>trocarAno(YEAR+1));
   v.querySelectorAll('input[data-bp]').forEach(inp=>inp.onchange=()=>{ const val=parseMoney(inp.value||'0'); const b=budgetProx.find(x=>x.id==inp.dataset.bp);
@@ -767,24 +782,40 @@ function renderVirada(){
 
 /* ---------- infraestrutura ---------- */
 function rerender(){
-  const sel=$('ano-sel'); sel.innerHTML=D.anos.map(a=>`<option value="${a.ano}"${a.ano===YEAR?' selected':''}>Exercício ${a.ano}${a.status==='fechado'?' (fechado)':''}</option>`).join('');
-  renderAvisos(); renderPainel(); renderAnalises(); renderLanc(); renderDRE(); renderOrc(); renderConf(); renderCad(); renderVirada();
+  renderAno(); renderAvisos(); renderPainel(); renderAnalises(); renderLanc(); renderDRE(); renderOrc(); renderConf(); renderCad(); renderVirada();
 }
-let ocupado=false;
-async function agir(fn, msg, depois){
-  if(ocupado) return; ocupado=true; document.body.style.cursor='progress';
-  try{ await fn(); depois?.(); const d=await api.carregar(YEAR); aplicar(d); rerender(); toast(msg); }
-  catch(e){ toast(e?.message||String(e), true); try{ aplicar(await api.carregar(YEAR)); rerender(); }catch{} }
-  finally{ ocupado=false; document.body.style.cursor=''; }
+// Gravações entram numa fila: uma de cada vez, nenhuma é descartada.
+let fila=Promise.resolve(), pendentesFila=0;
+function agir(fn, msg, depois){
+  pendentesFila++; document.body.style.cursor='progress';
+  fila=fila.then(async()=>{
+    try{ await fn(); depois?.(); if(pendentesFila===1){ aplicar(await api.carregar(YEAR)); rerenderSeguro(); } toast(typeof msg==='function'?msg():msg); }
+    catch(e){ toast(e?.message||String(e), true); try{ aplicar(await api.carregar(YEAR)); rerenderSeguro(); }catch{} }
+    finally{ if(--pendentesFila===0) document.body.style.cursor=''; }
+  });
 }
+// Não redesenha a tela em que há um campo sendo digitado; redesenha quando o foco sair dela.
+const VIEW_RENDER={painel:()=>renderPainel(),analises:()=>renderAnalises(),lancamentos:()=>renderLanc(),dre:()=>renderDRE(),orcamento:()=>renderOrc(),conferencia:()=>renderConf(),cadastros:()=>renderCad(),virada:()=>renderVirada()};
+function rerenderSeguro(){
+  const ativo=document.activeElement;
+  renderAno(); renderAvisos();
+  for(const [k,fn] of Object.entries(VIEW_RENDER)){
+    const sec=$('v-'+k);
+    if(k!=='lancamentos'&&ativo&&sec.contains(ativo)&&/^(INPUT|SELECT|TEXTAREA)$/.test(ativo.tagName)){
+      sec.addEventListener('focusout',e=>{ if(!sec.contains(e.relatedTarget)) fn(); },{once:true});
+    } else fn();
+  }
+}
+function renderAno(){ $('ano-sel').innerHTML=D.anos.map(a=>`<option value="${a.ano}"${a.ano===YEAR?' selected':''}>Exercício ${a.ano}${a.status==='fechado'?' (fechado)':''}</option>`).join(''); }
 async function trocarAno(ano){
   try{ aplicar(await api.carregar(ano)); rerender(); window.scrollTo(0,0); }catch(e){ toast(e?.message||String(e), true); }
 }
 function show(v){ if(!VIEWS.some(x=>x[0]===v)) v='painel'; document.querySelectorAll('[data-view]').forEach(s=>s.hidden=s.id!=='v-'+v); document.querySelectorAll('#nav a').forEach(a=>a.dataset.v===v?a.setAttribute('aria-current','page'):a.removeAttribute('aria-current')); }
 let toastT; function toast(msg, erro){ const t=$('toast'); t.textContent=msg; t.hidden=false; t.style.background=erro?'var(--crit)':''; t.style.color=erro?'#fff':''; clearTimeout(toastT); toastT=setTimeout(()=>t.hidden=true, erro?7000:Math.max(3200,msg.length*45)); }
 
+let ouvintes=false;
 export async function iniciar(raiz, apiDados){
-  api=apiDados;
+  api=apiDados; YEAR=undefined; confDate=null; confValores=null; editId=null; dreOpen.clear(); Object.assign(lf,{q:'',m:'',g:''});
   raiz.innerHTML=`<div class="bg" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
 <div class="app">
   <aside class="side">
@@ -813,11 +844,12 @@ export async function iniciar(raiz, apiDados){
     try{ await api.backup(); try{ localStorage.setItem('ultimoBackup', new Date().toISOString()); }catch{} renderAvisos(); toast('Backup baixado. Salve o arquivo na sua pasta do OneDrive.'); }
     catch(e){ toast('Não foi possível gerar o backup: '+(e?.message||e), true); } finally{ b.disabled=false; } };
   const cad=$('v-cadastros'); cad.addEventListener('click',onCadClick); cad.addEventListener('submit',onCadSubmit);
+  if(ouvintes){ show((location.hash||'#painel').slice(1)); try{ aplicar(await api.carregar()); rerender(); }catch(e){ toast(e?.message||String(e), true); } return; }
+  ouvintes=true;
   document.addEventListener('click',e=>{ const a=e.target.closest('a[href^="#"]'); if(a){ e.preventDefault(); const v=a.getAttribute('href').slice(1); show(v); try{history.replaceState(null,'','#'+v);}catch{} window.scrollTo(0,0); } });
-  const tip=$('tip');
-  document.addEventListener('mouseover',e=>{ const t=e.target.closest('[data-tip]'); if(t){ tip.innerHTML=t.getAttribute('data-tip'); tip.hidden=false; } });
-  document.addEventListener('mousemove',e=>{ if(tip.hidden) return; const w=tip.offsetWidth,h=tip.offsetHeight; let x=e.clientX+14,y=e.clientY+14; if(x+w>innerWidth-8) x=e.clientX-w-14; if(y+h>innerHeight-8) y=e.clientY-h-14; tip.style.left=x+'px'; tip.style.top=y+'px'; });
-  document.addEventListener('mouseout',e=>{ const t=e.target.closest('[data-tip]'); if(t && !t.contains(e.relatedTarget)) tip.hidden=true; });
+  document.addEventListener('mouseover',e=>{ const tip=$('tip'), t=e.target.closest('[data-tip]'); if(t){ tip.innerHTML=t.getAttribute('data-tip'); tip.hidden=false; } });
+  document.addEventListener('mousemove',e=>{ const tip=$('tip'); if(tip.hidden) return; const w=tip.offsetWidth,h=tip.offsetHeight; let x=e.clientX+14,y=e.clientY+14; if(x+w>innerWidth-8) x=e.clientX-w-14; if(y+h>innerHeight-8) y=e.clientY-h-14; tip.style.left=x+'px'; tip.style.top=y+'px'; });
+  document.addEventListener('mouseout',e=>{ const t=e.target.closest('[data-tip]'); if(t && !t.contains(e.relatedTarget)) $('tip').hidden=true; });
   show((location.hash||'#painel').slice(1));
   try{ aplicar(await api.carregar()); rerender(); show((location.hash||'#painel').slice(1)); }
   catch(e){ $('v-painel').innerHTML=`<div class="panel"><h2>Não foi possível carregar os dados</h2><p class="muted">${esc(e?.message||e)}</p></div>`; }
