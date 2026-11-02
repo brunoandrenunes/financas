@@ -34,7 +34,7 @@ const VIEWS = [
 
 /* ---------- estado ---------- */
 let api, D;
-let YEAR, rows = [], budget = [], budgetProx = [], CATS = [], CONTAS = [], RECS = [], SALDO_INI = 0, FECHADO = false;
+let YEAR, rows = [], budget = [], budgetProx = [], AJUSTES = [], CATS = [], CONTAS = [], RECS = [], SALDO_INI = 0, FECHADO = false;
 const dreOpen = new Set();
 const lf = {q:'',m:'',g:''};
 const sim = {total:1100000, inicio:null, fim:null, sobra:null, taxa:null, apto:null, aptoMes:null};
@@ -44,7 +44,7 @@ let editId = null;
 
 function aplicar(d){
   const mudouAno = YEAR !== d.ano;
-  D = d; YEAR = d.ano; rows = d.rows; budget = d.budget; budgetProx = d.budgetProx; CONTAS = d.contas; RECS = d.recebiveis;
+  D = d; YEAR = d.ano; rows = d.rows; budget = d.budget; budgetProx = d.budgetProx; AJUSTES = d.ajustes || []; CONTAS = d.contas; RECS = d.recebiveis;
   FECHADO = d.fechado; SALDO_INI = sum(d.saldoInicial.map(s=>s[1]));
   CATS = d.cats.map(c=>({...c, subs:[...c.subs]}));
   CATS.sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR')); CATS.forEach(c=>c.subs.sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR')));
@@ -93,6 +93,9 @@ function saldoAte(iso){ return SALDO_INI + rows.reduce((a,r)=> r.d<=iso ? a + (r
 const supRows = () => rows.filter(r=>r.esup);
 function realizado(b){ return sum(rows.filter(r=>r.g===b.g && (b.cid==null || r.c===b.c)).map(r=>r.v)); }
 const supOf = b => b.sup ? sum(supRows().map(r=>r.v)) : 0;
+// Ajustes manuais (suplementar, reduzir, remanejar): positivo soma, negativo reduz.
+const ajustesOf = b => AJUSTES.filter(a=>a.oid===b.id);
+const orcTotal = b => b.b + supOf(b) + sum(ajustesOf(b).map(a=>a.v));
 function pace(){ const d=new Date(lastDate()+'T12:00:00'); const s=new Date(YEAR,0,1); return Math.min(1,(d-s)/86400000/365); }
 function statusOf(pct,p){
   if(pct>1) return ['crit','Estourado','<path d="M8 4.5v4M8 11v.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>'];
@@ -192,7 +195,7 @@ function renderPainel(){
   const topCat=Object.entries(desCat).sort((a,b)=>b[1]-a[1]);
   const maxC=topCat[0]?.[1]||1;
   const obraB=budget.find(b=>b.g==='Obra'), obraCat={}; rows.filter(r=>r.g==='Obra').forEach(r=>obraCat[r.c]=(obraCat[r.c]||0)+r.v);
-  const orcRows=budget.filter(b=>b.g!=='Obra').map(b=>{ const tot=b.b+supOf(b), re=realizado(b); return {...b,tot,re,pct:tot?re/tot:0}; }).sort((a,b)=>b.pct-a.pct).slice(0,6);
+  const orcRows=budget.filter(b=>b.g!=='Obra').map(b=>{ const tot=orcTotal(b), re=realizado(b); return {...b,tot,re,pct:tot?re/tot:0}; }).sort((a,b)=>b.pct-a.pct).slice(0,6);
   const labels=mesesLabels(nM);
   const pend=pendentes();
   $('v-painel').innerHTML=`
@@ -219,7 +222,7 @@ function renderPainel(){
         <div class="hbars">${orcRows.map(o=>{ const st=statusOf(o.pct,p); return `<div class="hbar" data-tip="${esc(`<b>${esc(o.c)}</b><br>Realizado <span class=num>${R(o.re)}</span><br>Orçado <span class=num>${R(o.tot)}</span><br>${st[1]} (ritmo do ano: ${fmtP.format(p)})`)}"><span class="lbl">${esc(o.c)}</span><div class="track"><div class="fill" style="width:${Math.min(100,o.pct*100)}%;background:var(--${st[0]==='good'?'s1':st[0]==='warn'?'warn':'crit'})"></div><span class="pace" style="left:${p*100}%"></span></div><span class="val">${fmtP.format(o.pct)}</span></div>`; }).join('')}</div>
         <span class="muted small">A marca vertical é o ritmo do ano (${fmtP.format(p)}).</span></div>
       <div class="panel"><div class="panel-h"><h2>Obra</h2><span class="muted small">Saída de investimento</span></div>
-        <div class="kpi" style="padding:0"><span class="big">${R(obr)}</span><span class="sub">${obraB&&obraB.b?`de ${R(obraB.b)} orçados para ${YEAR} · ${fmtP.format(obr/obraB.b)}`:'Sem orçamento de obra para o ano'}</span></div>
+        <div class="kpi" style="padding:0"><span class="big">${R(obr)}</span><span class="sub">${obraB&&orcTotal(obraB)?`de ${R(orcTotal(obraB))} orçados para ${YEAR} · ${fmtP.format(obr/orcTotal(obraB))}`:'Sem orçamento de obra para o ano'}</span></div>
         <div class="hbars">${Object.entries(obraCat).sort((a,b)=>b[1]-a[1]).map(([c,v])=>`<div class="hbar"><span class="lbl">${esc(c)}</span><div class="track"><div class="fill" style="width:${obr?v/obr*100:0}%;background:var(--s4)"></div></div><span class="val">${N(v)}</span></div>`).join('')}</div>
         <div class="note">${pend.map(r=>`${esc(r.descricao)}: falta receber <b class="num">${R(aReceber(r))}</b> até ${dBR(r.vencimento)}; líquido a entrar <b class="num">${R(liquidoAEntrar(r))}</b> · <a href="#conferencia" class="linkbtn">Registrar recebimento</a><br>`).join('')}Investimentos (poupança da filha): <b class="num">${R(inv)}</b></div></div>
     </div>
@@ -535,33 +538,84 @@ function renderDRE(){
 /* ---------- Orçamento ---------- */
 function renderOrc(){
   const p=pace();
-  const mk=b=>{ const sup=supOf(b), tot=b.b+sup, re=realizado(b), pct=tot?re/tot:(re>0?2:0); return {b,sup,tot,re,pct,st:statusOf(pct,p)}; };
+  const mk=b=>{ const aj=ajustesOf(b), sup=supOf(b)+sum(aj.filter(a=>a.v>0).map(a=>a.v)), red=sum(aj.filter(a=>a.v<0).map(a=>a.v));
+    const tot=b.b+sup+red, re=realizado(b), pct=tot?re/tot:(re>0?2:0); return {b,aj,sup,red,tot,re,pct,st:statusOf(pct,p)}; };
   const ord=(a,b)=>a.b.c.localeCompare(b.b.c,'pt-BR');
   const desp=budget.filter(b=>b.g==='Despesa').map(mk).sort(ord), inv=budget.filter(b=>b.g==='Investimento').map(mk).sort(ord), obra=budget.filter(b=>b.g==='Obra').map(mk);
   const sups=supRows();
   const semOrc=CATS.filter(c=>(c.g==='Despesa'||c.g==='Investimento')&&rows.some(r=>r.g===c.g&&r.c===c.nome)&&!budget.some(b=>b.cid===c.id));
-  const row=o=>`<tr><td>${esc(o.b.c)}${o.sup?`<div class="muted small" data-tip="${esc('<b>Suplementações</b>'+sups.map(r=>`<br>${dBR(r.d)} · ${esc(r.c)}${r.sup?' (marcada)':' (automática)'} · <span class=num>${N(r.v)}</span>`).join(''))}" style="cursor:help;text-decoration:underline dotted">inclui ${sups.length} suplementações</div>`:''}</td>
+  const nomeOrc=b=>b.g==='Despesa'?b.c:`${b.c} (${b.g.toLowerCase()})`;
+  // Histórico de cada linha: suplementações por receita e ajustes manuais.
+  const movs=o=>[...(o.b.sup?sups.map(r=>({d:r.d,t:`${esc(r.c)}${r.sup?' (marcada)':' (automática)'}`,v:r.v})):[]),
+    ...o.aj.map(a=>{ const par=AJUSTES.find(x=>x.lote===a.lote&&x.id!==a.id), ob=par&&budget.find(b=>b.id===par.oid);
+      return {d:a.d,t:(ob?(a.v>0?`remanejado de ${esc(nomeOrc(ob))}`:`remanejado para ${esc(nomeOrc(ob))}`):(a.v>0?'suplementação':'redução'))+(a.motivo?` · ${esc(a.motivo)}`:''),v:a.v}; })]
+    .sort((x,y)=>x.d.localeCompare(y.d));
+  const row=o=>{ const m=movs(o);
+    return `<tr><td>${esc(o.b.c)}${m.length?`<div class="muted small" data-tip="${esc('<b>Movimentos do orçamento</b>'+m.map(x=>`<br>${dBR(x.d)} · ${x.t} · <span class=num>${N(x.v)}</span>`).join(''))}" style="cursor:help;text-decoration:underline dotted">${m.length} ${m.length===1?'movimento':'movimentos'}</div>`:''}</td>
     <td class="v"><input class="money" data-b="${o.b.id}" value="${o.b.b?N(o.b.b):''}" placeholder="0,00" aria-label="Orçado base de ${esc(o.b.c)}"${FECHADO?' disabled':''}></td>
-    <td class="v">${N(o.sup)}</td><td class="v">${N(o.tot)}</td><td class="v">${N(o.re)}</td><td class="v${o.tot-o.re<0?' neg':''}">${N(o.tot-o.re)}</td>
+    <td class="v">${N(o.sup)}</td><td class="v${o.red<0?' neg':''}">${N(o.red)}</td><td class="v">${N(o.tot)}</td><td class="v">${N(o.re)}</td><td class="v${o.tot-o.re<0?' neg':''}">${N(o.tot-o.re)}</td>
     <td style="min-width:150px"><div class="hbar" style="grid-template-columns:minmax(0,1fr) 52px"><div class="track"><div class="fill" style="width:${Math.min(100,Math.max(0,o.pct*100))}%;background:var(--${o.st[0]==='good'?'s1':o.st[0]==='warn'?'warn':'crit'})"></div><span class="pace" style="left:${p*100}%"></span></div><span class="val">${o.tot?fmtP.format(o.pct):'–'}</span></div></td>
-    <td>${pillHTML(o.st)}</td></tr>`;
-  const foot=(label,list)=>{ const t=k=>sum(list.map(o=>o[k])); return `<tr class="tot"><td><b>${label}</b></td><td class="v"><b>${N(sum(list.map(o=>o.b.b)))}</b></td><td class="v"><b>${N(t('sup'))}</b></td><td class="v"><b>${N(t('tot'))}</b></td><td class="v"><b>${N(t('re'))}</b></td><td class="v"><b>${N(t('tot')-t('re'))}</b></td><td class="v"><b>${t('tot')?fmtP.format(t('re')/t('tot')):'–'}</b></td><td></td></tr>`; };
-  const head=`<thead><tr><th>Categoria</th><th class="v">Orçado base</th><th class="v">Suplementações</th><th class="v">Orçado total</th><th class="v">Realizado</th><th class="v">Saldo</th><th>% consumido</th><th>Situação</th></tr></thead>`;
+    <td>${pillHTML(o.st)}</td></tr>`; };
+  const foot=(label,list)=>{ const t=k=>sum(list.map(o=>o[k])); return `<tr class="tot"><td><b>${label}</b></td><td class="v"><b>${N(sum(list.map(o=>o.b.b)))}</b></td><td class="v"><b>${N(t('sup'))}</b></td><td class="v"><b>${N(t('red'))}</b></td><td class="v"><b>${N(t('tot'))}</b></td><td class="v"><b>${N(t('re'))}</b></td><td class="v"><b>${N(t('tot')-t('re'))}</b></td><td class="v"><b>${t('tot')?fmtP.format(t('re')/t('tot')):'–'}</b></td><td></td></tr>`; };
+  const head=`<thead><tr><th>Categoria</th><th class="v">Orçado base</th><th class="v">Suplementado</th><th class="v">Reduzido</th><th class="v">Orçado atual</th><th class="v">Realizado</th><th class="v">Saldo</th><th>% consumido</th><th>Situação</th></tr></thead>`;
   const counts={crit:0,warn:0,good:0}; desp.forEach(o=>counts[o.st[0]]++);
+  const opcoes=[...desp,...inv,...obra].map(o=>`<option value="${o.b.id}">${esc(nomeOrc(o.b))} · ${N(o.tot)}</option>`).join('');
+  const lotes=[...new Set(AJUSTES.map(a=>a.lote))].map(l=>{ const it=AJUSTES.filter(a=>a.lote===l), neg=it.find(a=>a.v<0), pos=it.find(a=>a.v>0), nb=x=>x?esc(nomeOrc(budget.find(b=>b.id===x.oid)||{c:'?',g:'Despesa'})):'–';
+    return {l,d:it[0].d,tipo:neg&&pos?'Remanejamento':pos?'Suplementação':'Redução',de:nb(neg),para:nb(pos),v:Math.abs(it[0].v),motivo:it[0].motivo}; })
+    .sort((a,b)=>b.d.localeCompare(a.d));
+  const dataPadrao=hojeISO().slice(0,4)==YEAR?hojeISO():`${YEAR}-12-31`;
   $('v-orcamento').innerHTML=`<div class="wrap" style="gap:16px">
     <div class="head"><div><h1>Orçamento ${YEAR}</h1><p>Anual por categoria. A marca vertical na barra é o ritmo do ano (${fmtP.format(p)} decorrido).</p></div>
       <div class="toolbar" id="orc-status"></div></div>
     ${semOrc.length?`<div class="banner"><b>Atenção.</b><span>Categoria com gasto e sem linha de orçamento: ${semOrc.map(c=>`${esc(c.nome)} <button class="linkbtn" type="button" data-novo-orc="${c.id}"${FECHADO?' disabled':''}>criar linha</button>`).join(' · ')}</span></div>`:''}
+    ${FECHADO?'':`<div class="panel"><h2>Ajustar orçamento</h2>
+      <form class="form-row" id="oa-form">
+        <div class="field" style="flex:0 1 170px"><label for="oa-tipo">Tipo</label><select id="oa-tipo"><option value="rem">Remanejar</option><option value="sup">Suplementar</option><option value="red">Reduzir</option></select></div>
+        <div class="field" style="flex:0 1 150px"><label for="oa-d">Data</label><input type="date" id="oa-d" value="${dataPadrao}" min="${YEAR}-01-01" max="${YEAR}-12-31" required></div>
+        <div class="field" id="oa-de-w" style="flex:1 1 230px"><label for="oa-de">Reduzir de</label><select id="oa-de">${opcoes}</select></div>
+        <div class="field" id="oa-para-w" style="flex:1 1 230px"><label for="oa-para">Suplementar em</label><select id="oa-para">${opcoes}</select></div>
+        <div class="field" style="flex:0 1 130px"><label for="oa-v">Valor (R$)</label><input type="text" class="money" id="oa-v" placeholder="0,00" style="width:100%" required></div>
+        <div class="field"><label for="oa-m">Motivo</label><input type="text" id="oa-m" maxlength="200" placeholder="Opcional"></div>
+        <button class="btn primary" type="submit">Gravar ajuste</button>
+      </form>
+      <span class="muted small">O orçado base fica guardado como foi aprovado. Cada ajuste aparece nas colunas Suplementado e Reduzido e no histórico abaixo.</span></div>`}
     <h2>Despesas efetivas</h2>
     <div class="tbl-wrap"><table>${head}<tbody>${desp.map(row).join('')}${foot('Total despesas',desp)}</tbody></table></div>
     <h2>Investimentos e obra</h2>
     <div class="tbl-wrap"><table>${head}<tbody>${inv.map(row).join('')}${obra.map(row).join('')}</tbody></table></div>
-    <div class="note">Diárias recebidas suplementam o orçado de "Outros" automaticamente. Outras receitas não previstas só suplementam quando você marca isso no lançamento. Altere o orçado base direto na tabela: grava ao sair do campo.</div>
+    ${lotes.length?`<h2>Ajustes do ano</h2>
+    <div class="tbl-wrap"><table><thead><tr><th>Data</th><th>Tipo</th><th>Reduzido de</th><th>Suplementado em</th><th class="v">Valor</th><th>Motivo</th><th></th></tr></thead><tbody>
+      ${lotes.map(x=>`<tr><td class="num">${dBR(x.d)}</td><td>${x.tipo}</td><td>${x.de}</td><td>${x.para}</td><td class="v">${N(x.v)}</td><td>${esc(x.motivo)}</td><td>${FECHADO?'':`<button class="linkbtn" type="button" data-del-aj="${x.l}">excluir</button>`}</td></tr>`).join('')}
+    </tbody></table></div>`:''}
+    <div class="note">Diárias recebidas suplementam o orçado de "Outros" automaticamente. Outras receitas não previstas só suplementam quando você marca isso no lançamento. Para tirar de uma categoria e pôr em outra, use "Remanejar". Altere o orçado base direto na tabela: grava ao sair do campo.</div>
   </div>`;
   $('orc-status').innerHTML=['crit','warn','good'].map(k=>{ const st=statusOf(k==='crit'?2:k==='warn'?p+0.05:0,p); return `<span class="pill ${k}"><svg viewBox="0 0 16 16" aria-hidden="true">${st[2]}</svg>${counts[k]} ${st[1].toLowerCase()}</span>`; }).join('');
   document.querySelectorAll('#v-orcamento input[data-b]').forEach(inp=>inp.onchange=()=>{ const v=parseMoney(inp.value||'0'); const b=budget.find(x=>x.id==inp.dataset.b);
     if(isNaN(v)||v<0){ inp.value=b.b?N(b.b):''; toast('Valor inválido.'); return; } agir(()=>api.orcamento(b.id,v), `Orçado de ${b.c} gravado.`); });
   document.querySelectorAll('#v-orcamento [data-novo-orc]').forEach(bt=>bt.onclick=()=>{ const c=CATS.find(x=>x.id==bt.dataset.novoOrc); agir(()=>api.novoOrcamento(YEAR,c.g,c.id), `Linha de orçamento criada para ${c.nome}. Informe o valor.`); });
+  const f=$('oa-form');
+  if(f){
+    const tipo=()=>$('oa-tipo').value;
+    const mostrar=()=>{ $('oa-de-w').hidden=tipo()==='sup'; $('oa-para-w').hidden=tipo()==='red'; };
+    $('oa-tipo').onchange=mostrar; mostrar();
+    if(budget.length>1) $('oa-para').selectedIndex=1;
+    f.onsubmit=e=>{ e.preventDefault();
+      const t=tipo(), d=$('oa-d').value, v=parseMoney($('oa-v').value||''), motivo=$('oa-m').value.trim()||null;
+      const de=budget.find(b=>b.id==$('oa-de').value), para=budget.find(b=>b.id==$('oa-para').value);
+      if(!d||d.slice(0,4)!=YEAR){ toast(`A data precisa ser de ${YEAR}.`); return; }
+      if(isNaN(v)||v<=0){ toast('Informe um valor maior que zero.'); return; }
+      if(t==='rem'&&de.id===para.id){ toast('Escolha categorias diferentes para remanejar.'); return; }
+      if(t!=='sup'&&orcTotal(de)-v<-0.005){ toast(`O orçado atual de ${nomeOrc(de)} é ${R(orcTotal(de))}. Não dá para reduzir mais que isso.`, true); return; }
+      const lista=[];
+      if(t!=='sup') lista.push({orcamento_id:de.id,data:d,valor:-v,motivo});
+      if(t!=='red') lista.push({orcamento_id:para.id,data:d,valor:v,motivo});
+      const msg=t==='rem'?`Remanejados ${R(v)} de ${nomeOrc(de)} para ${nomeOrc(para)}.`:t==='sup'?`${nomeOrc(para)} suplementado em ${R(v)}.`:`${nomeOrc(de)} reduzido em ${R(v)}.`;
+      agir(()=>api.ajusteOrcamento(lista), msg);
+    };
+  }
+  document.querySelectorAll('#v-orcamento [data-del-aj]').forEach(bt=>bt.onclick=()=>{ const x=lotes.find(l=>l.l===bt.dataset.delAj);
+    if(!confirm(`Excluir o ajuste de ${dBR(x.d)} (${x.tipo.toLowerCase()} de ${R(x.v)})?`)) return;
+    agir(()=>api.excluirAjuste(x.l), 'Ajuste excluído.'); });
 }
 
 /* ---------- Conferência ---------- */
@@ -740,7 +794,7 @@ function renderVirada(){
   const prox=D.anos.find(a=>a.ano===YEAR+1);
   const conf31=D.conferencias.find(c=>c.data===`${YEAR}-12-31`);
   const mapa=b=>budget.find(x=>x.g===b.g&&x.cid===b.cid);
-  const list=budgetProx.map(b=>{ const a=mapa(b); return {...b, orc:a?a.b+supOf(a):0, re:a?realizado(a):0}; });
+  const list=budgetProx.map(b=>{ const a=mapa(b); return {...b, orc:a?orcTotal(a):0, re:a?realizado(a):0}; });
   $('v-virada').innerHTML=`<div class="wrap" style="gap:16px">
     <div class="head"><div><h1>Virada de ano: ${YEAR} → ${YEAR+1}</h1><p>${FECHADO?`${YEAR} está fechado.`:'Prévia do fechamento do exercício com a posição de hoje.'}</p></div>
       <div class="toolbar">

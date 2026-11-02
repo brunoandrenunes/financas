@@ -36,7 +36,7 @@ export async function carregar(anoPedido?: number) {
     ? anoPedido
     : num((abertos[0] ?? exercicios[exercicios.length - 1]).ano);
 
-  const [lanc, cats, subs, orc, contas, ini, confs, receb, movs, uso] = await Promise.all([
+  const [lanc, cats, subs, orc, contas, ini, confs, receb, movs, uso, ajustes] = await Promise.all([
     todas("v_lancamentos", "id,data,grupo,categoria,subcategoria,subcategoria_id,valor,descricao,composicao,suplementa_orcamento,e_suplementacao,origem", (q) => q.eq("ano", ano).order("data").order("id")),
     todas("categorias", "id,grupo,nome,ativa,suplementa_automaticamente", (q) => q.order("id")),
     todas("subcategorias", "id,categoria_id,nome,ativa", (q) => q.order("id")),
@@ -47,6 +47,7 @@ export async function carregar(anoPedido?: number) {
     todas("recebiveis", "*", (q) => q.order("id")),
     todas("recebimentos", "id,recebivel_id,data,tipo,valor,conta_id", (q) => q.order("data").order("id")),
     todas("lancamentos", "subcategoria_id", (q) => q.order("id")),
+    todas("orcamento_ajustes", "id,orcamento_id,data,valor,lote,motivo", (q) => q.gte("data", `${ano}-01-01`).lte("data", `${ano}-12-31`).order("data").order("id")),
   ]);
 
   const usoSub: Record<number, number> = {};
@@ -92,6 +93,9 @@ export async function carregar(anoPedido?: number) {
     })),
     budget: orc.filter((o) => o.ano === ano).map(mapOrc),
     budgetProx: orc.filter((o) => o.ano === ano + 1).map(mapOrc),
+    ajustes: ajustes.map((a) => ({
+      id: num(a.id), oid: num(a.orcamento_id), d: String(a.data), v: num(a.valor), lote: String(a.lote), motivo: (a.motivo as string) || "",
+    })),
     contas: contas.map((c) => ({
       id: num(c.id), inst: String(c.instituicao), nome: String(c.nome), tipo: String(c.tipo), ativa: Boolean(c.ativa), obs: (c.observacao as string) || "",
     })),
@@ -136,6 +140,16 @@ export const api = {
   async novoOrcamento(ano: number, grupo: string, categoria_id: number) {
     const { error } = await supabase.from("orcamentos").insert({ ano, grupo, categoria_id, valor_base: 0 });
     falhou(error);
+  },
+  // Um remanejamento manda as duas linhas (origem negativa, destino positivo) num único insert,
+  // com o mesmo lote: ou grava as duas, ou nenhuma.
+  async ajusteOrcamento(lista: { orcamento_id: number; data: string; valor: number; motivo: string | null }[]) {
+    const lote = crypto.randomUUID();
+    const { error } = await supabase.from("orcamento_ajustes").insert(lista.map((a) => ({ ...a, lote })));
+    falhou(error);
+  },
+  async excluirAjuste(lote: string) {
+    await umRegistro(supabase.from("orcamento_ajustes").delete().eq("lote", lote).select("id"));
   },
 
   async conferencia(data: string, saldos: { conta_id: number; saldo: number }[]) {
@@ -198,6 +212,7 @@ export const api = {
       ["Categorias", "categorias", "*"],
       ["Subcategorias", "subcategorias", "*"],
       ["Orçamentos", "orcamentos", "*"],
+      ["Ajustes do orçamento", "orcamento_ajustes", "*"],
       ["Exercícios", "exercicios", "*"],
       ["Saldo inicial", "saldo_inicial_itens", "*"],
       ["Contas", "contas", "*"],
