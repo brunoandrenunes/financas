@@ -36,7 +36,20 @@ const VIEWS = [
 ];
 
 const ALL_VIEWS = [...VIEWS, ...INV_VIEWS, ...PES_VIEWS];
-const AREAS = [['fin','Finanças','painel'],['inv','Investimentos','inv-carteira'],['pes','Pessoal','pes-leituras']];
+const AREAS = [['fin','Finanças'],['inv','Investimentos · filha'],['pes','Pessoal']];
+// Tema: automático (segue o sistema), claro ou escuro. Guardado neste navegador.
+const TEMAS = [
+  ['auto','Automático','<circle cx="8" cy="8" r="5.5"/><path d="M8 2.5a5.5 5.5 0 0 1 0 11z" fill="currentColor"/>'],
+  ['claro','Claro','<circle cx="8" cy="8" r="3"/><path d="M8 1.5v1.5M8 13v1.5M1.5 8H3M13 8h1.5M3.4 3.4l1 1M11.6 11.6l1 1M3.4 12.6l1-1M11.6 4.4l1-1"/>'],
+  ['escuro','Escuro','<path d="M13 9.5A5.5 5.5 0 0 1 6.5 3a5.5 5.5 0 1 0 6.5 6.5z"/>'],
+];
+function aplicarTema(t){
+  const raiz=document.documentElement;
+  if(t==='claro') raiz.dataset.theme='light'; else if(t==='escuro') raiz.dataset.theme='dark'; else delete raiz.dataset.theme;
+  try{ localStorage.setItem('tema',t); }catch{}
+  document.querySelectorAll('#temas button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.tema===t)));
+}
+const temaAtual = () => { try{ return localStorage.getItem('tema')||'auto'; }catch{ return 'auto'; } };
 const areaDe = v => v.startsWith('inv-') ? 'inv' : v.startsWith('pes-') ? 'pes' : 'fin';
 
 /* ---------- estado ---------- */
@@ -875,8 +888,8 @@ function show(v){
   if(!ALL_VIEWS.some(x=>x[0]===v)) v='painel';
   const area=areaDe(v);
   document.querySelectorAll('[data-view]').forEach(s=>s.hidden=s.id!=='v-'+v);
-  document.querySelectorAll('#nav a').forEach(a=>{ a.hidden=a.dataset.area!==area; if(a.dataset.v===v) a.setAttribute('aria-current','page'); else a.removeAttribute('aria-current'); });
-  document.querySelectorAll('#areas a').forEach(a=>a.setAttribute('aria-pressed', String(a.dataset.area===area)));
+  document.querySelectorAll('#nav a').forEach(a=>{ if(a.dataset.v===v) a.setAttribute('aria-current','page'); else a.removeAttribute('aria-current'); });
+  document.querySelectorAll('#nav .nav-grupo').forEach(g=>g.classList.toggle('atual', g.dataset.area===area));
   $('ano-sel').hidden=area!=='fin'; $('avisos').hidden=area!=='fin';
 }
 let toastT; function toast(msg, erro){ const t=$('toast'); t.textContent=msg; t.hidden=false; t.style.background=erro?'var(--crit)':''; t.style.color=erro?'#fff':''; clearTimeout(toastT); toastT=setTimeout(()=>t.hidden=true, erro?7000:Math.max(3200,msg.length*45)); }
@@ -888,14 +901,14 @@ export async function iniciar(raiz, apiDados){
 <div class="app">
   <aside class="side">
     <div class="brand"><span class="mark">B</span><div><b>Painel do Bruno</b><select id="ano-sel" class="ano-sel" aria-label="Exercício"></select></div></div>
-    <div class="seg areas" id="areas" role="group" aria-label="Área">${AREAS.map(([k,l,v])=>`<a href="#${v}" data-area="${k}" aria-pressed="${k==='fin'}">${l}</a>`).join('')}</div>
-    <nav class="nav" id="nav" aria-label="Seções">${ALL_VIEWS.map(([k,l,ic])=>`<a href="#${k}" data-v="${k}" data-area="${areaDe(k)}"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ic}</svg>${l}</a>`).join('')}</nav>
+    <nav class="nav" id="nav" aria-label="Seções">${AREAS.map(([area,rot])=>`<div class="nav-grupo" data-area="${area}"><span class="nav-rot">${rot}</span>${ALL_VIEWS.filter(([k])=>areaDe(k)===area).map(([k,l,ic])=>`<a href="#${k}" data-v="${k}"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ic}</svg>${l}</a>`).join('')}</div>`).join('')}</nav>
     <div class="side-foot">
       <button class="btn block" id="btn-backup" type="button">
         <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M8 2v8m0 0 3-3m-3 3L5 7M3 12v2h10v-2"/></svg>
         Baixar backup (.xlsx)
       </button>
       <span class="muted small" id="ub"></span>
+      <div class="seg temas" id="temas" role="group" aria-label="Tema">${TEMAS.map(([k,l,ic])=>`<button type="button" data-tema="${k}" aria-pressed="false" title="${l}" aria-label="Tema ${l.toLowerCase()}"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true">${ic}</svg></button>`).join('')}</div>
       <button class="linkbtn" id="btn-sair" type="button">Sair</button>
     </div>
   </aside>
@@ -910,6 +923,7 @@ export async function iniciar(raiz, apiDados){
   renderInv(); renderPes();
   $('ano-sel').onchange=e=>trocarAno(+e.target.value);
   $('btn-sair').onclick=()=>api.sair();
+  document.querySelectorAll('#temas button').forEach(b=>b.onclick=()=>aplicarTema(b.dataset.tema)); aplicarTema(temaAtual());
   $('btn-backup').onclick=async()=>{ const b=$('btn-backup'); b.disabled=true; toast('Gerando backup…');
     try{ await api.backup(); try{ localStorage.setItem('ultimoBackup', new Date().toISOString()); }catch{} renderAvisos(); toast('Backup baixado. Salve o arquivo na sua pasta do OneDrive.'); }
     catch(e){ toast('Não foi possível gerar o backup: '+(e?.message||e), true); } finally{ b.disabled=false; } };
@@ -918,6 +932,7 @@ export async function iniciar(raiz, apiDados){
   if(ouvintes){ show((location.hash||'#painel').slice(1)); try{ aplicar(await api.carregar()); rerender(); }catch(e){ toast(e?.message||String(e), true); } invEmSegundoPlano(); return; }
   ouvintes=true;
   document.addEventListener('click',e=>{ const a=e.target.closest('a[href^="#"]'); if(a){ e.preventDefault(); const v=a.getAttribute('href').slice(1); show(v); try{history.replaceState(null,'','#'+v);}catch{} window.scrollTo(0,0); } });
+  window.addEventListener('hashchange',()=>{ show(location.hash.slice(1)||'painel'); window.scrollTo(0,0); });
   document.addEventListener('mouseover',e=>{ const tip=$('tip'), t=e.target.closest('[data-tip]'); if(t){ tip.innerHTML=t.getAttribute('data-tip'); tip.hidden=false; } });
   document.addEventListener('mousemove',e=>{ const tip=$('tip'); if(tip.hidden) return; const w=tip.offsetWidth,h=tip.offsetHeight; let x=e.clientX+14,y=e.clientY+14; if(x+w>innerWidth-8) x=e.clientX-w-14; if(y+h>innerHeight-8) y=e.clientY-h-14; tip.style.left=x+'px'; tip.style.top=y+'px'; });
   document.addEventListener('mouseout',e=>{ const t=e.target.closest('[data-tip]'); if(t && !t.contains(e.relatedTarget)) $('tip').hidden=true; });

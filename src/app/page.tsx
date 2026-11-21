@@ -48,7 +48,7 @@ export default function Pagina() {
 }
 
 function Marca() {
-  return <div className="brand" style={{ padding: 0 }}><span className="mark">B</span><div><b>Finanças do Bruno</b></div></div>;
+  return <div className="brand" style={{ padding: 0 }}><span className="mark">B</span><div><b>Painel do Bruno</b></div></div>;
 }
 
 function Login({ onOk }: { onOk: () => void }) {

@@ -249,10 +249,16 @@ tr[data-id]{cursor:pointer}
 tr[data-id]:hover td{background:var(--surface-2)}
 [hidden]{display:none!important}
 
-/* Áreas do painel (Finanças / Investimentos) */
-.seg.areas{display:flex;flex-wrap:nowrap;margin:0 4px}
-.seg.areas a{flex:1;text-align:center;padding:6px 4px;border-radius:999px;font-weight:650;font-size:12px;color:var(--ink-2);text-decoration:none}
-.seg.areas a[aria-pressed="true"]{background:var(--glass-strong);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.08),inset 0 0 0 1px var(--glass-edge)}
+/* Menu agrupado por área */
+.nav{gap:14px;overflow-y:auto;min-height:0;margin:0 -4px;padding:0 4px}
+.nav-grupo{display:flex;flex-direction:column;gap:2px}
+.nav-rot{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);font-weight:700;padding:0 11px 4px}
+.nav-grupo.atual .nav-rot{color:var(--ink-2)}
+.nav a{padding:8px 11px}
+.seg.temas{align-self:flex-start}
+.seg.temas button{padding:5px 10px;display:grid;place-items:center}
+.ico{width:16px;height:16px;flex:none}
+@media (max-width:900px){.nav{flex-direction:row;overflow:visible;gap:2px}.nav-grupo{flex-direction:row}.nav-rot{display:none}.nav-grupo+.nav-grupo{border-left:1px solid var(--hair-2);padding-left:6px;margin-left:4px}}
 
 /* Leituras */
 .estante{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:18px 16px}
@@ -273,3 +279,61 @@ dialog.ficha::backdrop{background:rgba(0,0,0,.45);-webkit-backdrop-filter:blur(4
 .ficha-res .res{border:1px solid var(--hair-2);background:var(--surface-2);border-radius:10px;padding:5px;display:flex;flex-direction:column;gap:3px;cursor:pointer;color:var(--ink);text-align:left}
 .ficha-res .res img,.ficha-res .res .capa{width:100%;aspect-ratio:2/3;object-fit:cover;border-radius:6px}
 @media (max-width:700px){.ficha-in{grid-template-columns:minmax(0,1fr)}.capa.grande{width:140px}}
+
+.leit-topo{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:16px}
+.lendo-card{flex-direction:row;gap:18px;align-items:stretch}
+.lendo-card.vazio{flex-direction:column;align-items:flex-start}
+.lendo-capa{width:104px;flex:none;cursor:pointer}
+.lendo-txt{display:flex;flex-direction:column;gap:5px;min-width:0;flex:1}
+.lendo-titulo{font-size:19px;line-height:1.25;letter-spacing:-.02em}
+.meta-card{gap:12px}
+.meta-linha{display:flex;flex-direction:column;gap:6px}
+.meta-rot{display:flex;align-items:baseline;gap:6px}
+.meta-rot b{font-size:22px;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+.meta-rot .small{margin-left:auto}
+.meta-barra{position:relative;height:10px;border-radius:999px;background:var(--surface-2)}
+.meta-feito{height:100%;border-radius:999px;background:linear-gradient(90deg,var(--s3),color-mix(in srgb,var(--s3) 70%,var(--s1)))}
+.meta-barra .pace{top:-4px;bottom:-4px}
+.leit-kpis .kpi{padding:16px 20px}
+.barra-filtros input[type=search]{min-width:220px}
+.fila{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
+.fila-item{display:grid;grid-template-columns:18px 26px 44px minmax(0,1fr) auto auto;gap:12px;align-items:center;padding:8px 10px;border-radius:14px;transition:background .15s}
+.fila-item:hover{background:var(--glass-soft)}
+.fila-item.arrastando{opacity:.45}
+.fila-pega{color:var(--ink-3);cursor:grab;display:grid;place-items:center}
+.fila-pos{font-weight:800;color:var(--ink-3);font-variant-numeric:tabular-nums;text-align:right}
+.fila-capa{cursor:pointer}
+.fila-capa .capa{width:44px;border-radius:6px}
+.fila-capa .capa.vazia span{display:none}
+.fila-txt{display:flex;flex-direction:column;min-width:0;cursor:pointer}
+.fila-txt b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fila-acoes{display:flex;align-items:center;gap:4px}
+.fila-acoes .icon-btn{padding:6px}
+.fila-acoes .icon-btn[disabled]{opacity:.3;cursor:default}
+.tbl-plain{width:100%;border-collapse:collapse}
+.tbl-plain th{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);font-weight:600;text-align:left;padding:6px 8px;border-bottom:1px solid var(--line)}
+.tbl-plain th.v{text-align:right}
+.tbl-plain td{padding:8px;border-bottom:1px solid var(--line)}
+.tbl-plain tr:last-child td{border-bottom:0}
+.minibar{height:8px;border-radius:999px;background:var(--surface-2);overflow:hidden}
+.minibar i{display:block;height:100%;border-radius:999px;background:var(--s3)}
+.ano-livros{display:grid;grid-template-columns:repeat(auto-fill,minmax(136px,1fr));gap:16px 14px}
+.ano-mes{display:flex;flex-direction:column;gap:8px;padding-top:8px;border-top:1px solid var(--line)}
+.ano-capas{display:flex;flex-wrap:wrap;gap:8px}
+.mini{width:52px;cursor:pointer;transition:transform .15s}
+.mini:hover{transform:translateY(-2px)}
+.mini .capa{border-radius:6px}
+.mini .capa.vazia{font-size:8px;padding:4px}
+.ficha-topo{display:flex;justify-content:space-between;align-items:center}
+.ficha-topo .icon-btn{font-size:15px;padding:6px 9px}
+@media (max-width:1000px){.leit-topo{grid-template-columns:minmax(0,1fr)}}
+@media (max-width:640px){.fila-item{grid-template-columns:26px 40px minmax(0,1fr) auto}.fila-pega,.fila-quando{display:none}}
+
+/* Acabamentos gerais */
+.tbl-wrap.plain{background:none;border:0;box-shadow:none;-webkit-backdrop-filter:none;backdrop-filter:none;border-radius:0}
+.nome-ativo{max-width:210px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .g-kpi .kpi:first-child{background:linear-gradient(150deg,color-mix(in srgb,var(--s1) 34%,#1d2026),color-mix(in srgb,var(--s3) 14%,#1a1c21));color:var(--ink);border-color:color-mix(in srgb,var(--s1) 30%,transparent)}}
+:root[data-theme="dark"] .g-kpi .kpi:first-child{background:linear-gradient(150deg,color-mix(in srgb,var(--s1) 34%,#1d2026),color-mix(in srgb,var(--s3) 14%,#1a1c21));color:var(--ink);border-color:color-mix(in srgb,var(--s1) 30%,transparent)}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .g-kpi .kpi:first-child .eyebrow,:root:not([data-theme="light"]) .g-kpi .kpi:first-child .sub{color:var(--ink-2)}}
+:root[data-theme="dark"] .g-kpi .kpi:first-child .eyebrow,:root[data-theme="dark"] .g-kpi .kpi:first-child .sub{color:var(--ink-2)}
+.panel-h .seg{max-width:100%}

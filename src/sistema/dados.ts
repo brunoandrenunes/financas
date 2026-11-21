@@ -136,13 +136,17 @@ export type DadosInv = Awaited<ReturnType<typeof carregarInv>>;
 
 // Área pessoal (por enquanto, leituras).
 async function carregarPes() {
-  const livros = await todas("livros", "id,titulo,autor,generos,paginas,status,inicio,fim,nota,ano_leitura,capa_url,editora,isbn,anotacoes,citacoes,origem", (q) => q.order("id"));
+  const [livros, metas] = await Promise.all([
+    todas("livros", "id,titulo,autor,generos,paginas,status,inicio,fim,nota,ano_leitura,capa_url,editora,isbn,anotacoes,citacoes,origem,ordem", (q) => q.order("id")),
+    todas("metas", "ano,indicador,alvo", (q) => q.eq("area", "leituras").order("ano")),
+  ]);
   return {
+    metas: metas.map((m) => ({ ano: num(m.ano), indicador: String(m.indicador), alvo: num(m.alvo) })),
     livros: livros.map((l) => ({
       id: num(l.id), titulo: String(l.titulo), autor: (l.autor as string) || "", generos: (l.generos as string[]) ?? [], paginas: l.paginas == null ? null : num(l.paginas),
       status: String(l.status), inicio: (l.inicio as string) || null, fim: (l.fim as string) || null, nota: l.nota == null ? null : num(l.nota),
       ano: l.ano_leitura == null ? null : num(l.ano_leitura), capa: (l.capa_url as string) || null, editora: (l.editora as string) || "", isbn: (l.isbn as string) || "",
-      anotacoes: (l.anotacoes as string) || "", citacoes: (l.citacoes as string) || "", origem: String(l.origem),
+      anotacoes: (l.anotacoes as string) || "", citacoes: (l.citacoes as string) || "", origem: String(l.origem), ordem: l.ordem == null ? null : num(l.ordem),
     })),
   };
 }
@@ -156,7 +160,7 @@ async function umRegistro(q: PromiseLike<{ data: unknown[] | null; error: { mess
 }
 type CamposLivro = {
   titulo: string; autor: string | null; generos: string[]; paginas: number | null; status: string; inicio: string | null; fim: string | null;
-  nota: number | null; ano_leitura: number | null; capa_url: string | null; editora: string | null; isbn: string | null; anotacoes: string | null; citacoes: string | null;
+  nota: number | null; ano_leitura: number | null; capa_url: string | null; ordem?: number | null; editora: string | null; isbn: string | null; anotacoes: string | null; citacoes: string | null;
 };
 // Chamada às rotas do próprio site, que exigem o login.
 async function postLogado(url: string, corpo: unknown) {
@@ -257,9 +261,26 @@ export const api = {
 
   /* ---------- pessoal: leituras ---------- */
   carregarPes,
-  async pesLivro(id: number | null, campos: CamposLivro) {
+  async pesLivro(id: number | null, campos: Partial<CamposLivro>) {
     if (id == null) { falhou((await supabase.from("livros").insert(campos)).error); return; }
     await umRegistro(supabase.from("livros").update({ ...campos, atualizado_em: new Date().toISOString() }).eq("id", id).select("id"));
+  },
+  // Grava a nova ordem da fila "quero ler" (posição 1 = próximo a ler).
+  async pesReordenar(ids: number[]) {
+    for (let i = 0; i < ids.length; i++) {
+      await umRegistro(supabase.from("livros").update({ ordem: i + 1 }).eq("id", ids[i]).select("id"));
+    }
+  },
+  // Envia a imagem da capa (já reduzida pela tela) e devolve o endereço público.
+  async pesEnviarCapa(arquivo: Blob) {
+    const nome = `livro-${crypto.randomUUID()}.jpg`;
+    const { error } = await supabase.storage.from("capas").upload(nome, arquivo, { contentType: "image/jpeg", cacheControl: "31536000" });
+    falhou(error);
+    return supabase.storage.from("capas").getPublicUrl(nome).data.publicUrl;
+  },
+  async pesMeta(ano: number, indicador: string, alvo: number | null) {
+    if (alvo == null) { falhou((await supabase.from("metas").delete().match({ ano, area: "leituras", indicador })).error); return; }
+    falhou((await supabase.from("metas").upsert({ ano, area: "leituras", indicador, alvo }, { onConflict: "ano,area,indicador" })).error);
   },
   async pesExcluirLivro(id: number) {
     await umRegistro(supabase.from("livros").delete().eq("id", id).select("id"));
@@ -321,6 +342,7 @@ export const api = {
       ["Inv. cotações", "inv_cotacoes", "*"],
       ["Inv. PTAX", "inv_ptax", "*"],
       ["Livros", "livros", "*"],
+      ["Metas", "metas", "*"],
       ["Auditoria", "auditoria", "*"],
     ];
     const semId = new Set(["conferencia_saldos", "exercicios", "inv_cotacoes", "inv_ptax"]);
