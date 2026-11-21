@@ -134,14 +134,28 @@ async function carregarInv() {
 }
 export type DadosInv = Awaited<ReturnType<typeof carregarInv>>;
 
-// Área pessoal (por enquanto, leituras).
+// Data (AAAA-MM-DD) no fuso do navegador, a partir de um horário gravado pelo banco.
+const diaLocal = (ts: string) => { const d = new Date(ts); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+// Área pessoal: leituras, treinos, rotinas, metas e a situação da agenda (sem o endereço secreto).
 async function carregarPes() {
-  const [livros, metas] = await Promise.all([
+  const [livros, metas, treinos, rotinas, marcas, config] = await Promise.all([
     todas("livros", "id,titulo,autor,generos,paginas,status,inicio,fim,nota,ano_leitura,capa_url,editora,isbn,anotacoes,citacoes,origem,ordem", (q) => q.order("id")),
-    todas("metas", "ano,indicador,alvo", (q) => q.eq("area", "leituras").order("ano")),
+    todas("metas", "id,ano,area,indicador,titulo,alvo,atual,unidade", (q) => q.order("ano").order("id")),
+    todas("treinos", "id,data,tipo,numero,duracao_min,observacao,origem", (q) => q.order("data").order("id")),
+    todas("rotinas", "id,nome,dias,ativa,ordem,criado_em", (q) => q.order("ordem", { nullsFirst: false }).order("id")),
+    todas("rotina_marcas", "rotina_id,data", (q) => q.order("data")),
+    todas("pes_config", "chave,atualizado_em", (q) => q.order("chave")),
   ]);
+  const ciclo = config.some((c) => c.chave === "treino_ciclo")
+    ? (((await supabase.from("pes_config").select("valor").eq("chave", "treino_ciclo").single()).data?.valor ?? []) as string[])
+    : [];
   return {
-    metas: metas.map((m) => ({ ano: num(m.ano), indicador: String(m.indicador), alvo: num(m.alvo) })),
+    metas: metas.map((m) => ({ id: num(m.id), ano: num(m.ano), area: String(m.area), indicador: String(m.indicador), titulo: (m.titulo as string) || "", alvo: num(m.alvo), atual: m.atual == null ? null : num(m.atual), unidade: (m.unidade as string) || "" })),
+    treinos: treinos.map((t) => ({ id: num(t.id), data: String(t.data), tipo: String(t.tipo), numero: t.numero == null ? null : num(t.numero), duracao: t.duracao_min == null ? null : num(t.duracao_min), obs: (t.observacao as string) || "", origem: String(t.origem) })),
+    rotinas: rotinas.map((r) => ({ id: num(r.id), nome: String(r.nome), dias: ((r.dias as number[]) ?? []).map(Number), ativa: !!r.ativa, ordem: r.ordem == null ? null : num(r.ordem), criado: diaLocal(String(r.criado_em)) })),
+    marcas: marcas.map((m) => ({ rotina: num(m.rotina_id), data: String(m.data) })),
+    ciclo,
+    agendaConectada: config.some((c) => c.chave === "agenda_ics"),
     livros: livros.map((l) => ({
       id: num(l.id), titulo: String(l.titulo), autor: (l.autor as string) || "", generos: (l.generos as string[]) ?? [], paginas: l.paginas == null ? null : num(l.paginas),
       status: String(l.status), inicio: (l.inicio as string) || null, fim: (l.fim as string) || null, nota: l.nota == null ? null : num(l.nota),
@@ -278,9 +292,49 @@ export const api = {
     falhou(error);
     return supabase.storage.from("capas").getPublicUrl(nome).data.publicUrl;
   },
-  async pesMeta(ano: number, indicador: string, alvo: number | null) {
-    if (alvo == null) { falhou((await supabase.from("metas").delete().match({ ano, area: "leituras", indicador })).error); return; }
-    falhou((await supabase.from("metas").upsert({ ano, area: "leituras", indicador, alvo }, { onConflict: "ano,area,indicador" })).error);
+  async pesMeta(ano: number, indicador: string, alvo: number | null, area = "leituras") {
+    if (alvo == null) { falhou((await supabase.from("metas").delete().match({ ano, area, indicador })).error); return; }
+    falhou((await supabase.from("metas").upsert({ ano, area, indicador, alvo }, { onConflict: "ano,area,indicador" })).error);
+  },
+  // Metas personalizadas (título, alvo, valor atual e unidade escritos à mão).
+  async pesMetaLivre(id: number | null, campos: { ano?: number; area?: string; indicador?: string; titulo: string; alvo: number; atual: number | null; unidade: string | null }) {
+    if (id == null) { falhou((await supabase.from("metas").insert(campos)).error); return; }
+    await umRegistro(supabase.from("metas").update(campos).eq("id", id).select("id"));
+  },
+  async pesExcluirMeta(id: number) { await umRegistro(supabase.from("metas").delete().eq("id", id).select("id")); },
+
+  /* ---------- pessoal: treinos ---------- */
+  async pesTreino(id: number | null, campos: { data: string; tipo: string; numero: number | null; duracao_min: number | null; observacao: string | null }) {
+    if (id == null) { falhou((await supabase.from("treinos").insert(campos)).error); return; }
+    await umRegistro(supabase.from("treinos").update({ ...campos, atualizado_em: new Date().toISOString() }).eq("id", id).select("id"));
+  },
+  async pesExcluirTreino(id: number) { await umRegistro(supabase.from("treinos").delete().eq("id", id).select("id")); },
+  async pesCiclo(nomes: string[]) {
+    falhou((await supabase.from("pes_config").upsert({ chave: "treino_ciclo", valor: nomes, atualizado_em: new Date().toISOString() })).error);
+  },
+
+  /* ---------- pessoal: rotinas ---------- */
+  async pesRotina(id: number | null, campos: { nome?: string; dias?: number[]; ativa?: boolean; ordem?: number | null }) {
+    if (id == null) { falhou((await supabase.from("rotinas").insert(campos)).error); return; }
+    await umRegistro(supabase.from("rotinas").update(campos).eq("id", id).select("id"));
+  },
+  async pesExcluirRotina(id: number) { await umRegistro(supabase.from("rotinas").delete().eq("id", id).select("id")); },
+  async pesMarcar(rotina_id: number, data: string, feito: boolean) {
+    if (feito) falhou((await supabase.from("rotina_marcas").upsert({ rotina_id, data })).error);
+    else falhou((await supabase.from("rotina_marcas").delete().match({ rotina_id, data })).error);
+  },
+
+  /* ---------- pessoal: agenda (Google) ---------- */
+  // Guarda os endereços secretos iCal. Eles não voltam para a tela: só a rota /api/agenda lê.
+  async pesAgendaConectar(fontes: { nome: string; url: string }[]) {
+    if (!fontes.length) { falhou((await supabase.from("pes_config").delete().eq("chave", "agenda_ics")).error); return; }
+    falhou((await supabase.from("pes_config").upsert({ chave: "agenda_ics", valor: fontes, atualizado_em: new Date().toISOString() })).error);
+  },
+  async pesAgenda(de: string, ate: string) {
+    const r = await postLogado("/api/agenda", { de, ate });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.erro || "Não foi possível ler a agenda agora.");
+    return j as { eventos: { cal: string; titulo: string; inicio: string; fim: string; diaInteiro: boolean; local: string | null }[]; falhas: string[]; conectada: boolean };
   },
   async pesExcluirLivro(id: number) {
     await umRegistro(supabase.from("livros").delete().eq("id", id).select("id"));
@@ -343,9 +397,12 @@ export const api = {
       ["Inv. PTAX", "inv_ptax", "*"],
       ["Livros", "livros", "*"],
       ["Metas", "metas", "*"],
+      ["Treinos", "treinos", "*"],
+      ["Rotinas", "rotinas", "*"],
+      ["Rotinas marcadas", "rotina_marcas", "*"],
       ["Auditoria", "auditoria", "*"],
     ];
-    const semId = new Set(["conferencia_saldos", "exercicios", "inv_cotacoes", "inv_ptax"]);
+    const semId = new Set(["conferencia_saldos", "exercicios", "inv_cotacoes", "inv_ptax", "rotina_marcas"]);
     const resumo: [string, number][] = [];
     const info = wb.addWorksheet("Leia-me", { properties: { tabColor: { argb: "FF2A78D6" } } });
     for (const [nome, tabela, cols] of abas) {

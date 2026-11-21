@@ -36,7 +36,14 @@ const VIEWS = [
 ];
 
 const ALL_VIEWS = [...VIEWS, ...INV_VIEWS, ...PES_VIEWS];
-const AREAS = [['fin','Finanças'],['inv','Investimentos · filha'],['pes','Pessoal']];
+const AREAS = [
+  ['fin','Finanças','<path d="M2.5 13.5h11M4.5 11V8m3.5 3V4.5m3.5 6.5V6.5"/>'],
+  ['inv','Investimentos','<path d="M2 12l4-4 2.5 2.5L14 5M10.5 5H14v3.5"/>'],
+  ['pes','Pessoal','<circle cx="8" cy="5.5" r="2.5"/><path d="M3 13.5c.8-2.4 2.7-3.7 5-3.7s4.2 1.3 5 3.7"/>'],
+];
+// Menu recolhível: só a área aberta mostra as suas telas. Lembra a última tela de cada área.
+const ultimaDaArea = {};
+let areaFechada = null;
 // Tema: automático (segue o sistema), claro ou escuro. Guardado neste navegador.
 const TEMAS = [
   ['auto','Automático','<circle cx="8" cy="8" r="5.5"/><path d="M8 2.5a5.5 5.5 0 0 1 0 11z" fill="currentColor"/>'],
@@ -889,8 +896,17 @@ function show(v){
   const area=areaDe(v);
   document.querySelectorAll('[data-view]').forEach(s=>s.hidden=s.id!=='v-'+v);
   document.querySelectorAll('#nav a').forEach(a=>{ if(a.dataset.v===v) a.setAttribute('aria-current','page'); else a.removeAttribute('aria-current'); });
-  document.querySelectorAll('#nav .nav-grupo').forEach(g=>g.classList.toggle('atual', g.dataset.area===area));
+  ultimaDaArea[area]=v; areaFechada=null; abrirArea(area);
   $('ano-sel').hidden=area!=='fin'; $('avisos').hidden=area!=='fin';
+}
+function abrirArea(area){
+  document.querySelectorAll('#nav .nav-grupo').forEach(g=>{ const ab=g.dataset.area===area&&areaFechada!==area; g.classList.toggle('aberto',ab); g.querySelector('.nav-area')?.setAttribute('aria-expanded',String(ab)); });
+}
+function clicarArea(area){
+  const atual=areaDe((location.hash||'#painel').slice(1));
+  if(area===atual){ areaFechada=areaFechada===area?null:area; abrirArea(area); return; }
+  const v=ultimaDaArea[area]||ALL_VIEWS.find(([k])=>areaDe(k)===area)[0];
+  show(v); try{history.replaceState(null,'','#'+v);}catch{} window.scrollTo(0,0);
 }
 let toastT; function toast(msg, erro){ const t=$('toast'); t.textContent=msg; t.hidden=false; t.style.background=erro?'var(--crit)':''; t.style.color=erro?'#fff':''; clearTimeout(toastT); toastT=setTimeout(()=>t.hidden=true, erro?7000:Math.max(3200,msg.length*45)); }
 
@@ -901,7 +917,9 @@ export async function iniciar(raiz, apiDados){
 <div class="app">
   <aside class="side">
     <div class="brand"><span class="mark">B</span><div><b>Painel do Bruno</b><select id="ano-sel" class="ano-sel" aria-label="Exercício"></select></div></div>
-    <nav class="nav" id="nav" aria-label="Seções">${AREAS.map(([area,rot])=>`<div class="nav-grupo" data-area="${area}"><span class="nav-rot">${rot}</span>${ALL_VIEWS.filter(([k])=>areaDe(k)===area).map(([k,l,ic])=>`<a href="#${k}" data-v="${k}"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ic}</svg>${l}</a>`).join('')}</div>`).join('')}</nav>
+    <nav class="nav" id="nav" aria-label="Seções">${AREAS.map(([area,rot,icA])=>`<div class="nav-grupo" data-area="${area}">
+      <button type="button" class="nav-area" data-area="${area}" aria-expanded="false" title="${rot}"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icA}</svg><span>${rot}</span><svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3.5 10.5 8 6 12.5"/></svg></button>
+      <div class="nav-itens">${ALL_VIEWS.filter(([k])=>areaDe(k)===area).map(([k,l,ic])=>`<a href="#${k}" data-v="${k}"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ic}</svg>${l}</a>`).join('')}</div></div>`).join('')}</nav>
     <div class="side-foot">
       <button class="btn block" id="btn-backup" type="button">
         <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M8 2v8m0 0 3-3m-3 3L5 7M3 12v2h10v-2"/></svg>
@@ -923,6 +941,7 @@ export async function iniciar(raiz, apiDados){
   renderInv(); renderPes();
   $('ano-sel').onchange=e=>trocarAno(+e.target.value);
   $('btn-sair').onclick=()=>api.sair();
+  document.querySelectorAll('#nav .nav-area').forEach(b=>b.onclick=()=>clicarArea(b.dataset.area));
   document.querySelectorAll('#temas button').forEach(b=>b.onclick=()=>aplicarTema(b.dataset.tema)); aplicarTema(temaAtual());
   $('btn-backup').onclick=async()=>{ const b=$('btn-backup'); b.disabled=true; toast('Gerando backup…');
     try{ await api.backup(); try{ localStorage.setItem('ultimoBackup', new Date().toISOString()); }catch{} renderAvisos(); toast('Backup baixado. Salve o arquivo na sua pasta do OneDrive.'); }
