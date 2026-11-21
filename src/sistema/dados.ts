@@ -134,12 +134,38 @@ async function carregarInv() {
 }
 export type DadosInv = Awaited<ReturnType<typeof carregarInv>>;
 
+// Área pessoal (por enquanto, leituras).
+async function carregarPes() {
+  const livros = await todas("livros", "id,titulo,autor,generos,paginas,status,inicio,fim,nota,ano_leitura,capa_url,editora,isbn,anotacoes,citacoes,origem", (q) => q.order("id"));
+  return {
+    livros: livros.map((l) => ({
+      id: num(l.id), titulo: String(l.titulo), autor: (l.autor as string) || "", generos: (l.generos as string[]) ?? [], paginas: l.paginas == null ? null : num(l.paginas),
+      status: String(l.status), inicio: (l.inicio as string) || null, fim: (l.fim as string) || null, nota: l.nota == null ? null : num(l.nota),
+      ano: l.ano_leitura == null ? null : num(l.ano_leitura), capa: (l.capa_url as string) || null, editora: (l.editora as string) || "", isbn: (l.isbn as string) || "",
+      anotacoes: (l.anotacoes as string) || "", citacoes: (l.citacoes as string) || "", origem: String(l.origem),
+    })),
+  };
+}
+
 /* ---------- gravações ---------- */
 // update/delete barrados pela RLS ou com id inexistente não dão erro: confere que gravou.
 async function umRegistro(q: PromiseLike<{ data: unknown[] | null; error: { message: string } | null }>) {
   const { data, error } = await q;
   falhou(error);
   if (!data?.length) throw new Error("Nada foi gravado: o registro não existe mais ou o ano está fechado. Recarregue a página.");
+}
+type CamposLivro = {
+  titulo: string; autor: string | null; generos: string[]; paginas: number | null; status: string; inicio: string | null; fim: string | null;
+  nota: number | null; ano_leitura: number | null; capa_url: string | null; editora: string | null; isbn: string | null; anotacoes: string | null; citacoes: string | null;
+};
+// Chamada às rotas do próprio site, que exigem o login.
+async function postLogado(url: string, corpo: unknown) {
+  const { data: s } = await supabase.auth.getSession();
+  return fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${s.session?.access_token ?? ""}` },
+    body: JSON.stringify(corpo),
+  });
 }
 type NovoMovimento = {
   corretora_id: number; ativo_id: number | null; data: string; data_liquidacao?: string | null; tipo: string;
@@ -229,6 +255,22 @@ export const api = {
 
   async sair() { await supabase.auth.signOut(); },
 
+  /* ---------- pessoal: leituras ---------- */
+  carregarPes,
+  async pesLivro(id: number | null, campos: CamposLivro) {
+    if (id == null) { falhou((await supabase.from("livros").insert(campos)).error); return; }
+    await umRegistro(supabase.from("livros").update({ ...campos, atualizado_em: new Date().toISOString() }).eq("id", id).select("id"));
+  },
+  async pesExcluirLivro(id: number) {
+    await umRegistro(supabase.from("livros").delete().eq("id", id).select("id"));
+  },
+  async pesBuscarLivro(titulo: string, autor: string) {
+    const r = await postLogado("/api/livros", { titulo, autor });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.erro || "Não foi possível buscar o livro agora.");
+    return j.resultados as { titulo: string; autor: string; paginas: number | null; capa: string | null; isbn: string | null; editora: string | null; ano: number | null }[];
+  },
+
   /* ---------- investimentos (área separada) ---------- */
   carregarInv,
   async invMovimento(m: NovoMovimento) {
@@ -244,12 +286,7 @@ export const api = {
   },
   // Busca cotações e PTAX pela rota do próprio site e grava no banco.
   async invAtualizarMercado(simbolos: { id: number; simbolo: string }[], ptaxDe: string | null) {
-    const { data: s } = await supabase.auth.getSession();
-    const r = await fetch("/api/mercado", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${s.session?.access_token ?? ""}` },
-      body: JSON.stringify({ simbolos: simbolos.map((x) => x.simbolo), ptaxDe }),
-    });
+    const r = await postLogado("/api/mercado", { simbolos: simbolos.map((x) => x.simbolo), ptaxDe });
     if (!r.ok) throw new Error("Não foi possível buscar as cotações agora.");
     const j: { cotacoes: Record<string, number | null>; ptax: { data: string; compra: number; venda: number }[]; erroPtax: string | null } = await r.json();
     const agora = new Date().toISOString();
@@ -283,6 +320,7 @@ export const api = {
       ["Inv. movimentos", "inv_movimentos", "*"],
       ["Inv. cotações", "inv_cotacoes", "*"],
       ["Inv. PTAX", "inv_ptax", "*"],
+      ["Livros", "livros", "*"],
       ["Auditoria", "auditoria", "*"],
     ];
     const semId = new Set(["conferencia_saldos", "exercicios", "inv_cotacoes", "inv_ptax"]);
@@ -296,7 +334,7 @@ export const api = {
       linhas.forEach((l) => ws.addRow(Object.fromEntries(chaves.map((k) => {
         const v = l[k];
         if (v !== null && typeof v === "object") return [k, JSON.stringify(v)];
-        if (["valor", "valor_base", "saldo", "saldo_calculado", "total_informado", "rendimento", "valor_contratado", "recebido_antes", "custo_previsto", "valor_brl", "iof", "quantidade", "preco", "compra", "venda"].includes(k) && v != null) return [k, Number(v)];
+        if (["valor", "valor_base", "saldo", "saldo_calculado", "total_informado", "rendimento", "valor_contratado", "recebido_antes", "custo_previsto", "valor_brl", "iof", "quantidade", "preco", "compra", "venda", "nota"].includes(k) && v != null) return [k, Number(v)];
         return [k, v];
       }))));
       ws.getRow(1).font = { bold: true };

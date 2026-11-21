@@ -4,6 +4,7 @@
 // são recarregados e as telas redesenhadas.
 // A área de investimentos (investimentos.js) é separada: tem dados e telas próprios.
 import { INV_VIEWS, iniciarInv, carregarInv, renderInv } from './investimentos.js';
+import { PES_VIEWS, iniciarPes, carregarPes, renderPes } from './pessoal.js';
 
 const MESES = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
 const GRUPOS = ['Receita','Despesa','Investimento','Obra'];
@@ -34,9 +35,9 @@ const VIEWS = [
   ['virada','Virada de ano','<path d="M13 8a5 5 0 1 1-1.5-3.6M13 2.5V5h-2.5"/>'],
 ];
 
-const ALL_VIEWS = [...VIEWS, ...INV_VIEWS];
-const AREAS = [['fin','Finanças','painel'],['inv','Investimentos','inv-carteira']];
-const areaDe = v => v.startsWith('inv-') ? 'inv' : 'fin';
+const ALL_VIEWS = [...VIEWS, ...INV_VIEWS, ...PES_VIEWS];
+const AREAS = [['fin','Finanças','painel'],['inv','Investimentos','inv-carteira'],['pes','Pessoal','pes-leituras']];
+const areaDe = v => v.startsWith('inv-') ? 'inv' : v.startsWith('pes-') ? 'pes' : 'fin';
 
 /* ---------- estado ---------- */
 let api, D;
@@ -882,7 +883,7 @@ let toastT; function toast(msg, erro){ const t=$('toast'); t.textContent=msg; t.
 
 let ouvintes=false;
 export async function iniciar(raiz, apiDados){
-  api=apiDados; iniciarInv(apiDados, toast); YEAR=undefined; confDate=null; confValores=null; editId=null; dreOpen.clear(); Object.assign(lf,{q:'',m:'',g:''});
+  api=apiDados; iniciarInv(apiDados, toast); iniciarPes(apiDados, toast); YEAR=undefined; confDate=null; confValores=null; editId=null; dreOpen.clear(); Object.assign(lf,{q:'',m:'',g:''});
   raiz.innerHTML=`<div class="bg" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
 <div class="app">
   <aside class="side">
@@ -906,14 +907,14 @@ export async function iniciar(raiz, apiDados){
 <div id="tip" hidden></div>
 <div id="toast" hidden></div>`;
   $('v-painel').innerHTML='<div class="panel"><span class="muted">Carregando seus dados…</span></div>';
-  renderInv();
+  renderInv(); renderPes();
   $('ano-sel').onchange=e=>trocarAno(+e.target.value);
   $('btn-sair').onclick=()=>api.sair();
   $('btn-backup').onclick=async()=>{ const b=$('btn-backup'); b.disabled=true; toast('Gerando backup…');
     try{ await api.backup(); try{ localStorage.setItem('ultimoBackup', new Date().toISOString()); }catch{} renderAvisos(); toast('Backup baixado. Salve o arquivo na sua pasta do OneDrive.'); }
     catch(e){ toast('Não foi possível gerar o backup: '+(e?.message||e), true); } finally{ b.disabled=false; } };
   const cad=$('v-cadastros'); cad.addEventListener('click',onCadClick); cad.addEventListener('submit',onCadSubmit);
-  const invEmSegundoPlano=()=>carregarInv().catch(e=>toast('Investimentos: '+(e?.message||e), true));
+  const invEmSegundoPlano=()=>{ carregarInv().catch(e=>toast('Investimentos: '+(e?.message||e), true)); carregarPes().catch(e=>toast('Pessoal: '+(e?.message||e), true)); };
   if(ouvintes){ show((location.hash||'#painel').slice(1)); try{ aplicar(await api.carregar()); rerender(); }catch(e){ toast(e?.message||String(e), true); } invEmSegundoPlano(); return; }
   ouvintes=true;
   document.addEventListener('click',e=>{ const a=e.target.closest('a[href^="#"]'); if(a){ e.preventDefault(); const v=a.getAttribute('href').slice(1); show(v); try{history.replaceState(null,'','#'+v);}catch{} window.scrollTo(0,0); } });

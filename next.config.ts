@@ -9,7 +9,8 @@ const csp = [
   "default-src 'self'",
   `script-src 'self' 'unsafe-inline'${dev ? " 'unsafe-eval'" : ""}`,
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob:",
+  // Capas de livros vêm de sites de terceiros (Skoob, Open Library): só imagens, nunca scripts.
+  "img-src 'self' data: blob: https:",
   "font-src 'self'",
   `connect-src 'self' ${supabase} ${supabase.replace("https://", "wss://")}`,
   "frame-ancestors 'none'",

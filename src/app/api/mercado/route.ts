@@ -1,4 +1,4 @@
-import { createClient } from "@supabase/supabase-js";
+import { logado, naoAutenticado } from "@/lib/rota";
 
 // Busca cotações (Yahoo Finance) e a PTAX do Banco Central para a área de investimentos.
 // Roda no servidor porque o navegador só pode conversar com o próprio site e com o Supabase.
@@ -33,11 +33,7 @@ async function ptax(de: string, ate: string) {
 }
 
 export async function POST(req: Request) {
-  const token = req.headers.get("authorization")?.replace(/^Bearer /, "");
-  if (!token) return Response.json({ erro: "Não autenticado" }, { status: 401 });
-  const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!);
-  const { data: u, error } = await sb.auth.getUser(token);
-  if (error || !u.user) return Response.json({ erro: "Não autenticado" }, { status: 401 });
+  if (!(await logado(req))) return naoAutenticado();
 
   let corpo: { simbolos?: unknown; ptaxDe?: unknown };
   try { corpo = await req.json(); } catch { return Response.json({ erro: "Pedido inválido" }, { status: 400 }); }
