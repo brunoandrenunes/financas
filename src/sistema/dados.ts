@@ -111,6 +111,29 @@ export async function carregar(anoPedido?: number) {
 }
 export type Dados = Awaited<ReturnType<typeof carregar>>;
 
+// Área de investimentos: carrega tudo (são poucos registros); os cálculos ficam na tela.
+async function carregarInv() {
+  const [corretoras, ativos, movs, cotacoes, ptax] = await Promise.all([
+    todas("inv_corretoras", "id,nome,moeda,ativa,observacao", (q) => q.order("id")),
+    todas("inv_ativos", "id,codigo,nome,tipo,moeda", (q) => q.order("codigo")),
+    todas("inv_movimentos", "id,corretora_id,ativo_id,data,data_liquidacao,tipo,quantidade,preco,valor,valor_brl,iof,documento,observacao", (q) => q.order("data").order("id")),
+    todas("inv_cotacoes", "ativo_id,preco,atualizado_em", (q) => q.order("ativo_id")),
+    todas("inv_ptax", "data,compra,venda", (q) => q.order("data")),
+  ]);
+  const n = (v: unknown) => (v == null ? null : Number(v));
+  return {
+    corretoras: corretoras.map((c) => ({ id: num(c.id), nome: String(c.nome), moeda: String(c.moeda), ativa: Boolean(c.ativa), obs: (c.observacao as string) || "" })),
+    ativos: ativos.map((a) => ({ id: num(a.id), codigo: String(a.codigo), nome: String(a.nome), tipo: String(a.tipo), moeda: String(a.moeda) })),
+    movs: movs.map((m) => ({
+      id: num(m.id), cid: num(m.corretora_id), aid: n(m.ativo_id), d: String(m.data), liq: (m.data_liquidacao as string) || null, tipo: String(m.tipo),
+      q: n(m.quantidade), p: n(m.preco), v: num(m.valor), vb: n(m.valor_brl), iof: n(m.iof), doc: (m.documento as string) || "", obs: (m.observacao as string) || "",
+    })),
+    cotacoes: Object.fromEntries(cotacoes.map((c) => [num(c.ativo_id), { preco: num(c.preco), em: String(c.atualizado_em) }])),
+    ptax: ptax.map((p) => ({ d: String(p.data), c: num(p.compra), v: num(p.venda) })),
+  };
+}
+export type DadosInv = Awaited<ReturnType<typeof carregarInv>>;
+
 /* ---------- gravações ---------- */
 // update/delete barrados pela RLS ou com id inexistente não dão erro: confere que gravou.
 async function umRegistro(q: PromiseLike<{ data: unknown[] | null; error: { message: string } | null }>) {
@@ -118,6 +141,11 @@ async function umRegistro(q: PromiseLike<{ data: unknown[] | null; error: { mess
   falhou(error);
   if (!data?.length) throw new Error("Nada foi gravado: o registro não existe mais ou o ano está fechado. Recarregue a página.");
 }
+type NovoMovimento = {
+  corretora_id: number; ativo_id: number | null; data: string; data_liquidacao?: string | null; tipo: string;
+  quantidade?: number | null; preco?: number | null; valor: number; valor_brl?: number | null; iof?: number | null;
+  documento?: string | null; observacao?: string | null;
+};
 type NovoLancamento = { data: string; subcategoria_id: number; valor: number; descricao?: string; suplementa_orcamento?: boolean };
 
 export const api = {
@@ -201,6 +229,36 @@ export const api = {
 
   async sair() { await supabase.auth.signOut(); },
 
+  /* ---------- investimentos (área separada) ---------- */
+  carregarInv,
+  async invMovimento(m: NovoMovimento) {
+    const { error } = await supabase.from("inv_movimentos").insert(m);
+    falhou(error);
+  },
+  async invExcluirMovimento(id: number) {
+    await umRegistro(supabase.from("inv_movimentos").delete().eq("id", id).select("id"));
+  },
+  async invNovoAtivo(a: { codigo: string; nome: string; tipo: string; moeda: string }) {
+    const { error } = await supabase.from("inv_ativos").insert(a);
+    falhou(error);
+  },
+  // Busca cotações e PTAX pela rota do próprio site e grava no banco.
+  async invAtualizarMercado(simbolos: { id: number; simbolo: string }[], ptaxDe: string | null) {
+    const { data: s } = await supabase.auth.getSession();
+    const r = await fetch("/api/mercado", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${s.session?.access_token ?? ""}` },
+      body: JSON.stringify({ simbolos: simbolos.map((x) => x.simbolo), ptaxDe }),
+    });
+    if (!r.ok) throw new Error("Não foi possível buscar as cotações agora.");
+    const j: { cotacoes: Record<string, number | null>; ptax: { data: string; compra: number; venda: number }[]; erroPtax: string | null } = await r.json();
+    const agora = new Date().toISOString();
+    const cot = simbolos.filter((x) => j.cotacoes[x.simbolo]).map((x) => ({ ativo_id: x.id, preco: j.cotacoes[x.simbolo], atualizado_em: agora }));
+    if (cot.length) falhou((await supabase.from("inv_cotacoes").upsert(cot)).error);
+    if (j.ptax.length) falhou((await supabase.from("inv_ptax").upsert(j.ptax)).error);
+    return { cotacoes: cot.length, faltaram: simbolos.length - cot.length, ptax: j.ptax.length, erroPtax: j.erroPtax };
+  },
+
   // Backup completo em Excel: uma aba por tabela, todos os anos, mais a auditoria (só leitura).
   async backup() {
     const { default: ExcelJS } = await import("exceljs");
@@ -220,19 +278,25 @@ export const api = {
       ["Saldos conferidos", "conferencia_saldos", "*"],
       ["Recebíveis", "recebiveis", "*"],
       ["Recebimentos", "recebimentos", "*"],
+      ["Inv. corretoras", "inv_corretoras", "*"],
+      ["Inv. ativos", "inv_ativos", "*"],
+      ["Inv. movimentos", "inv_movimentos", "*"],
+      ["Inv. cotações", "inv_cotacoes", "*"],
+      ["Inv. PTAX", "inv_ptax", "*"],
       ["Auditoria", "auditoria", "*"],
     ];
+    const semId = new Set(["conferencia_saldos", "exercicios", "inv_cotacoes", "inv_ptax"]);
     const resumo: [string, number][] = [];
     const info = wb.addWorksheet("Leia-me", { properties: { tabColor: { argb: "FF2A78D6" } } });
     for (const [nome, tabela, cols] of abas) {
-      const linhas = await todas(tabela, cols, (q) => (cols.includes("id") || cols === "*") && tabela !== "conferencia_saldos" && tabela !== "exercicios" ? q.order("id") : q);
+      const linhas = await todas(tabela, cols, (q) => (cols.includes("id") || cols === "*") && !semId.has(tabela) ? q.order("id") : q);
       const ws = wb.addWorksheet(nome);
       const chaves = linhas.length ? Object.keys(linhas[0]) : cols === "*" ? [] : cols.split(",");
       ws.columns = chaves.map((k) => ({ header: k, key: k, width: Math.min(40, Math.max(10, k.length + 2)) }));
       linhas.forEach((l) => ws.addRow(Object.fromEntries(chaves.map((k) => {
         const v = l[k];
         if (v !== null && typeof v === "object") return [k, JSON.stringify(v)];
-        if (["valor", "valor_base", "saldo", "saldo_calculado", "total_informado", "rendimento", "valor_contratado", "recebido_antes", "custo_previsto"].includes(k) && v != null) return [k, Number(v)];
+        if (["valor", "valor_base", "saldo", "saldo_calculado", "total_informado", "rendimento", "valor_contratado", "recebido_antes", "custo_previsto", "valor_brl", "iof", "quantidade", "preco", "compra", "venda"].includes(k) && v != null) return [k, Number(v)];
         return [k, v];
       }))));
       ws.getRow(1).font = { bold: true };

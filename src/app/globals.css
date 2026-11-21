@@ -248,3 +248,8 @@ textarea{width:100%;min-height:110px;font-family:ui-monospace,"Cascadia Mono",Co
 tr[data-id]{cursor:pointer}
 tr[data-id]:hover td{background:var(--surface-2)}
 [hidden]{display:none!important}
+
+/* Áreas do painel (Finanças / Investimentos) */
+.seg.areas{display:flex;margin:0 4px}
+.seg.areas a{flex:1;text-align:center;padding:6px 10px;border-radius:999px;font-weight:650;font-size:13px;color:var(--ink-2);text-decoration:none}
+.seg.areas a[aria-pressed="true"]{background:var(--glass-strong);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.08),inset 0 0 0 1px var(--glass-edge)}

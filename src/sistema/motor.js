@@ -2,6 +2,8 @@
 // Cada tela é desenhada como HTML; todo texto vindo do banco passa por esc().
 // As gravações vão para o banco por `api` (dados.ts); depois de cada uma, os dados
 // são recarregados e as telas redesenhadas.
+// A área de investimentos (investimentos.js) é separada: tem dados e telas próprios.
+import { INV_VIEWS, iniciarInv, carregarInv, renderInv } from './investimentos.js';
 
 const MESES = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
 const GRUPOS = ['Receita','Despesa','Investimento','Obra'];
@@ -31,6 +33,10 @@ const VIEWS = [
   ['cadastros','Cadastros','<path d="M3 3.5h4v4H3zM9 3.5h4v4H9zM3 9.5h4v4H3zM9 11.5h4"/>'],
   ['virada','Virada de ano','<path d="M13 8a5 5 0 1 1-1.5-3.6M13 2.5V5h-2.5"/>'],
 ];
+
+const ALL_VIEWS = [...VIEWS, ...INV_VIEWS];
+const AREAS = [['fin','Finanças','painel'],['inv','Investimentos','inv-carteira']];
+const areaDe = v => v.startsWith('inv-') ? 'inv' : 'fin';
 
 /* ---------- estado ---------- */
 let api, D;
@@ -864,17 +870,25 @@ function renderAno(){ $('ano-sel').innerHTML=D.anos.map(a=>`<option value="${a.a
 async function trocarAno(ano){
   try{ aplicar(await api.carregar(ano)); rerender(); window.scrollTo(0,0); }catch(e){ toast(e?.message||String(e), true); }
 }
-function show(v){ if(!VIEWS.some(x=>x[0]===v)) v='painel'; document.querySelectorAll('[data-view]').forEach(s=>s.hidden=s.id!=='v-'+v); document.querySelectorAll('#nav a').forEach(a=>a.dataset.v===v?a.setAttribute('aria-current','page'):a.removeAttribute('aria-current')); }
+function show(v){
+  if(!ALL_VIEWS.some(x=>x[0]===v)) v='painel';
+  const area=areaDe(v);
+  document.querySelectorAll('[data-view]').forEach(s=>s.hidden=s.id!=='v-'+v);
+  document.querySelectorAll('#nav a').forEach(a=>{ a.hidden=a.dataset.area!==area; if(a.dataset.v===v) a.setAttribute('aria-current','page'); else a.removeAttribute('aria-current'); });
+  document.querySelectorAll('#areas a').forEach(a=>a.setAttribute('aria-pressed', String(a.dataset.area===area)));
+  $('ano-sel').hidden=area!=='fin'; $('avisos').hidden=area!=='fin';
+}
 let toastT; function toast(msg, erro){ const t=$('toast'); t.textContent=msg; t.hidden=false; t.style.background=erro?'var(--crit)':''; t.style.color=erro?'#fff':''; clearTimeout(toastT); toastT=setTimeout(()=>t.hidden=true, erro?7000:Math.max(3200,msg.length*45)); }
 
 let ouvintes=false;
 export async function iniciar(raiz, apiDados){
-  api=apiDados; YEAR=undefined; confDate=null; confValores=null; editId=null; dreOpen.clear(); Object.assign(lf,{q:'',m:'',g:''});
+  api=apiDados; iniciarInv(apiDados, toast); YEAR=undefined; confDate=null; confValores=null; editId=null; dreOpen.clear(); Object.assign(lf,{q:'',m:'',g:''});
   raiz.innerHTML=`<div class="bg" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
 <div class="app">
   <aside class="side">
-    <div class="brand"><span class="mark">B</span><div><b>Finanças do Bruno</b><select id="ano-sel" class="ano-sel" aria-label="Exercício"></select></div></div>
-    <nav class="nav" id="nav" aria-label="Seções">${VIEWS.map(([k,l,ic])=>`<a href="#${k}" data-v="${k}"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ic}</svg>${l}</a>`).join('')}</nav>
+    <div class="brand"><span class="mark">B</span><div><b>Painel do Bruno</b><select id="ano-sel" class="ano-sel" aria-label="Exercício"></select></div></div>
+    <div class="seg areas" id="areas" role="group" aria-label="Área">${AREAS.map(([k,l,v])=>`<a href="#${v}" data-area="${k}" aria-pressed="${k==='fin'}">${l}</a>`).join('')}</div>
+    <nav class="nav" id="nav" aria-label="Seções">${ALL_VIEWS.map(([k,l,ic])=>`<a href="#${k}" data-v="${k}" data-area="${areaDe(k)}"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ic}</svg>${l}</a>`).join('')}</nav>
     <div class="side-foot">
       <button class="btn block" id="btn-backup" type="button">
         <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M8 2v8m0 0 3-3m-3 3L5 7M3 12v2h10v-2"/></svg>
@@ -886,19 +900,21 @@ export async function iniciar(raiz, apiDados){
   </aside>
   <main class="main"><div class="wrap">
     <div id="avisos" style="display:grid;gap:10px"></div>
-    ${VIEWS.map(([k],i)=>`<section id="v-${k}" data-view${i?' hidden':''}></section>`).join('')}
+    ${ALL_VIEWS.map(([k],i)=>`<section id="v-${k}" data-view${i?' hidden':''}></section>`).join('')}
   </div></main>
 </div>
 <div id="tip" hidden></div>
 <div id="toast" hidden></div>`;
   $('v-painel').innerHTML='<div class="panel"><span class="muted">Carregando seus dados…</span></div>';
+  renderInv();
   $('ano-sel').onchange=e=>trocarAno(+e.target.value);
   $('btn-sair').onclick=()=>api.sair();
   $('btn-backup').onclick=async()=>{ const b=$('btn-backup'); b.disabled=true; toast('Gerando backup…');
     try{ await api.backup(); try{ localStorage.setItem('ultimoBackup', new Date().toISOString()); }catch{} renderAvisos(); toast('Backup baixado. Salve o arquivo na sua pasta do OneDrive.'); }
     catch(e){ toast('Não foi possível gerar o backup: '+(e?.message||e), true); } finally{ b.disabled=false; } };
   const cad=$('v-cadastros'); cad.addEventListener('click',onCadClick); cad.addEventListener('submit',onCadSubmit);
-  if(ouvintes){ show((location.hash||'#painel').slice(1)); try{ aplicar(await api.carregar()); rerender(); }catch(e){ toast(e?.message||String(e), true); } return; }
+  const invEmSegundoPlano=()=>carregarInv().catch(e=>toast('Investimentos: '+(e?.message||e), true));
+  if(ouvintes){ show((location.hash||'#painel').slice(1)); try{ aplicar(await api.carregar()); rerender(); }catch(e){ toast(e?.message||String(e), true); } invEmSegundoPlano(); return; }
   ouvintes=true;
   document.addEventListener('click',e=>{ const a=e.target.closest('a[href^="#"]'); if(a){ e.preventDefault(); const v=a.getAttribute('href').slice(1); show(v); try{history.replaceState(null,'','#'+v);}catch{} window.scrollTo(0,0); } });
   document.addEventListener('mouseover',e=>{ const tip=$('tip'), t=e.target.closest('[data-tip]'); if(t){ tip.innerHTML=t.getAttribute('data-tip'); tip.hidden=false; } });
@@ -907,4 +923,5 @@ export async function iniciar(raiz, apiDados){
   show((location.hash||'#painel').slice(1));
   try{ aplicar(await api.carregar()); rerender(); show((location.hash||'#painel').slice(1)); }
   catch(e){ $('v-painel').innerHTML=`<div class="panel"><h2>Não foi possível carregar os dados</h2><p class="muted">${esc(e?.message||e)}</p></div>`; }
+  invEmSegundoPlano();
 }
