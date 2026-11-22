@@ -1,7 +1,7 @@
 // Agenda: o mês com os compromissos do Google Agenda (pelo endereço secreto iCal, lido só no
 // servidor), os treinos, as rotinas e as leituras. Ao lado, o painel do dia escolhido.
 import { S, esc, dBR, $, hojeISO, isoDe, addDias, diasEntre, SEM_CURTA, svg, ICONES, capa, gradeMes, mudarMes, navMes,
-  gravarPes, livrosNoDia, rotinasDoDia, marcada, corTipo, siglaTipo, proximoTreino, diaPorExtenso } from './pes-comum.js';
+  gravarPes, livrosNoDia, rotinasDoDia, marcada, corTipo, siglaTipo, proximoTreino, diaPorExtenso, dialogo } from './pes-comum.js';
 import { abrirTreino } from './pes-treinos.js';
 import { htmlChecklist, tratarMarca } from './pes-metas.js';
 
@@ -50,7 +50,8 @@ export function renderAgenda(){
     <div class="head"><div><h1>Agenda</h1><p>${diaPorExtenso(hojeISO()).replace(/^./,c=>c.toUpperCase())}</p></div>
       <div class="toolbar">${conectada?`<span class="pill ${af.erro||af.falhas.length?'warn':'good'}">${af.carregando?'Atualizando…':af.erro||af.falhas.length?'Google com problema':'Google Agenda conectada'}</span>
         <button class="btn" type="button" id="pa-atualizar">Atualizar</button>`:''}
-        <button class="btn" type="button" id="pa-config">${conectada?'Configurar':'Conectar Google Agenda'}</button></div></div>
+        <button class="btn" type="button" id="pa-config">${conectada?'Configurar':'Conectar Google Agenda'}</button>
+        <button class="btn primary" type="button" data-novo-ev="${af.dia>=hojeISO()?af.dia:hojeISO()}">${svg(ICONES.mais)} Novo compromisso</button></div></div>
     ${!conectada||af.config?htmlConexao(conectada):''}
     ${af.erro?`<div class="banner warn">Não foi possível ler o Google Agenda: ${esc(af.erro)}</div>`:''}
     ${af.falhas.length?`<div class="banner warn">Não consegui ler: ${af.falhas.map(esc).join(', ')}. Confira se o endereço secreto ainda vale (ele muda se for redefinido no Google).</div>`:''}
@@ -105,7 +106,7 @@ function htmlDia(mapa){
   const titulo = d===hoje ? 'Hoje' : d===addDias(hoje,1) ? 'Amanhã' : d===addDias(hoje,-1) ? 'Ontem' : dBR(d);
   return `<div class="panel ag-painel-dia">
     <div class="panel-h"><div><h2>${titulo}</h2><span class="muted small">${diaPorExtenso(d)}</span></div>${d!==hoje?'<button class="btn" type="button" id="pa-hoje">Hoje</button>':''}</div>
-    <section><span class="eyebrow">Compromissos</span>
+    <section><div class="ag-sec-h"><span class="eyebrow">Compromissos</span><button class="linkbtn" type="button" data-novo-ev="${d}">+ Adicionar</button></div>
       ${!S.P.agendaConectada?'<p class="muted small">Conecte o Google Agenda para ver seus compromissos aqui.</p>'
         :af.carregando&&!af.meses.has(d.slice(0,7))?'<p class="muted small">Carregando…</p>'
         :evs.length?`<ul class="ag-lista">${evs.map(ev=>`<li><span class="ag-hora">${ev.diaInteiro?'Dia todo':`${hora(ev.inicio)}<small>${hora(ev.fim)}</small>`}</span><div><b>${esc(ev.titulo)}</b>${ev.local?`<span class="muted small">${esc(ev.local)}</span>`:''}${S.P.agendaConectada&&af.eventos.size&&new Set([...af.eventos.values()].map(x=>x.cal)).size>1?`<span class="muted small">${esc(ev.cal)}</span>`:''}</div></li>`).join('')}</ul>`
@@ -132,9 +133,10 @@ function htmlProximos(){
 
 function ligar(v){
   v.onclick=e=>{
-    const t=e.target.closest('[data-marcar],[data-dia-ag],[data-pa-mes],[data-treino-ag],[data-treino-novo-ag],#pa-hoje,#pa-config,#pa-config-x,#pa-atualizar,#pa-desconectar');
+    const t=e.target.closest('[data-novo-ev],[data-marcar],[data-dia-ag],[data-pa-mes],[data-treino-ag],[data-treino-novo-ag],#pa-hoje,#pa-config,#pa-config-x,#pa-atualizar,#pa-desconectar');
     if(!t||!v.contains(t)) return;
     if(t.dataset.marcar) return tratarMarca(t);
+    if(t.dataset.novoEv) return novoCompromisso(t.dataset.novoEv);
     if(t.dataset.paMes!=null){ const n=+t.dataset.paMes; af.mes=n?mudarMes(af.mes,n):hojeISO().slice(0,7); if(!n) af.dia=hojeISO(); renderAgenda(); return; }
     if(t.dataset.diaAg){ af.dia=t.dataset.diaAg; if(af.dia.slice(0,7)!==af.mes) af.mes=af.dia.slice(0,7); renderAgenda(); if(innerWidth<1100) document.querySelector('.ag-painel-dia')?.scrollIntoView({behavior:'smooth',block:'start'}); return; }
     if(t.id==='pa-hoje'){ af.dia=hojeISO(); af.mes=af.dia.slice(0,7); renderAgenda(); return; }
@@ -155,5 +157,51 @@ function ligar(v){
     if(!fontes.length){ S.toast('Cole pelo menos um endereço.'); return; }
     af.config=false; reiniciarAgenda();
     gravarPes(()=>S.api.pesAgendaConectar(fontes),'Google Agenda conectada. Buscando seus compromissos…');
+  };
+}
+
+/* ---------- Novo compromisso ---------- */
+// O endereço iCal só permite ler. Para criar, o site abre a tela de "novo evento" do próprio Google
+// já preenchida; o Bruno confere e salva lá. Ao voltar para esta aba, a agenda se atualiza sozinha.
+const compacto = (dia, hhmm) => dia.replaceAll('-','') + (hhmm ? 'T'+hhmm.replace(':','')+'00' : '');
+let atualizarAoVoltar = 0;
+if(typeof window!=='undefined') window.addEventListener('focus', () => {
+  if(atualizarAoVoltar && Date.now()<atualizarAoVoltar && S.P?.agendaConectada){ atualizarAoVoltar=0; setTimeout(()=>garantirMes(af.mes,true), 1500); }
+});
+function novoCompromisso(dia){
+  const d=dialogo('pa-ev-dlg','Novo compromisso');
+  d.innerHTML=`<form class="dlg-in" id="pae">
+    <div class="ficha-topo"><h2>Novo compromisso</h2><button class="icon-btn" type="button" data-fechar aria-label="Fechar">✕</button></div>
+    <div class="field"><label for="pae-tit">O quê</label><input type="text" id="pae-tit" maxlength="200" required placeholder="Ex.: Dentista"></div>
+    <div class="form-row">
+      <div class="field" style="flex:0 1 160px"><label for="pae-dia">Dia</label><input type="date" id="pae-dia" required value="${dia}"></div>
+      <div class="field hora" style="flex:0 1 110px"><label for="pae-ini">Início</label><input type="time" id="pae-ini" value="09:00"></div>
+      <div class="field hora" style="flex:0 1 110px"><label for="pae-fim">Fim</label><input type="time" id="pae-fim" value="10:00"></div>
+    </div>
+    <label class="check-linha"><input type="checkbox" id="pae-todo"> Dia inteiro</label>
+    <div class="field"><label for="pae-local">Onde (opcional)</label><input type="text" id="pae-local" maxlength="200"></div>
+    <div class="field"><label for="pae-desc">Detalhes (opcional)</label><textarea id="pae-desc" rows="3" maxlength="2000"></textarea></div>
+    <span class="muted small">Ao continuar, abre o Google Agenda com tudo preenchido. Confira e clique em <b>Salvar</b> lá; quando voltar para esta aba, o compromisso aparece aqui.</span>
+    <div class="toolbar" style="justify-content:flex-end"><button class="btn" type="button" data-fechar>Cancelar</button><button class="btn primary" type="submit">Continuar no Google</button></div>
+  </form>`;
+  if(!d.open) d.showModal();
+  d.querySelectorAll('[data-fechar]').forEach(b=>b.onclick=()=>d.close());
+  const ajustar=()=>d.querySelectorAll('.hora').forEach(x=>x.hidden=$('pae-todo').checked);
+  $('pae-todo').onchange=ajustar;
+  $('pae-ini').onchange=()=>{ const [h,m]=$('pae-ini').value.split(':').map(Number); if(isNaN(h)) return; const f=new Date(2000,0,1,h+1,m); $('pae-fim').value=`${String(f.getHours()).padStart(2,'0')}:${String(f.getMinutes()).padStart(2,'0')}`; };
+  $('pae').onsubmit=e=>{ e.preventDefault();
+    const tit=$('pae-tit').value.trim(), dia=$('pae-dia').value, todo=$('pae-todo').checked, ini=$('pae-ini').value, fim=$('pae-fim').value;
+    if(!tit||!dia){ S.toast('Informe o compromisso e o dia.'); return; }
+    if(!todo&&(!ini||!fim)){ S.toast('Informe o horário de início e de fim.'); return; }
+    const fimDia = !todo && fim<=ini ? addDias(dia,1) : dia; // terminou depois da meia-noite
+    const p=new URLSearchParams({ action:'TEMPLATE', text:tit,
+      dates: todo ? `${compacto(dia)}/${compacto(addDias(dia,1))}` : `${compacto(dia,ini)}/${compacto(fimDia,fim)}`,
+      ctz: Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Sao_Paulo' });
+    if($('pae-local').value.trim()) p.set('location',$('pae-local').value.trim());
+    if($('pae-desc').value.trim()) p.set('details',$('pae-desc').value.trim());
+    window.open('https://calendar.google.com/calendar/render?'+p.toString(),'_blank','noopener');
+    d.close();
+    atualizarAoVoltar=Date.now()+30*60000;
+    S.toast('Confira no Google e clique em Salvar. Ao voltar para esta aba, a agenda se atualiza.');
   };
 }

@@ -144,18 +144,21 @@ async function carregarPes() {
     todas("treinos", "id,data,tipo,numero,duracao_min,observacao,origem", (q) => q.order("data").order("id")),
     todas("rotinas", "id,nome,dias,ativa,ordem,criado_em", (q) => q.order("ordem", { nullsFirst: false }).order("id")),
     todas("rotina_marcas", "rotina_id,data", (q) => q.order("data")),
-    todas("pes_config", "chave,atualizado_em", (q) => q.order("chave")),
+    // O endereço da agenda nunca é carregado na tela: só se confere se existe.
+    todas("pes_config", "chave,valor", (q) => q.neq("chave", "agenda_ics")),
   ]);
-  const ciclo = config.some((c) => c.chave === "treino_ciclo")
-    ? (((await supabase.from("pes_config").select("valor").eq("chave", "treino_ciclo").single()).data?.valor ?? []) as string[])
-    : [];
+  const agenda = await todas("pes_config", "chave", (q) => q.eq("chave", "agenda_ics"));
+  const cfg = (k: string) => (config.find((c) => c.chave === k)?.valor ?? []) as unknown[];
+  const ciclo = cfg("treino_ciclo") as string[];
+  const fichas = cfg("treino_fichas") as { tipo: string; foco: string; exercicios: string[] }[];
   return {
     metas: metas.map((m) => ({ id: num(m.id), ano: num(m.ano), area: String(m.area), indicador: String(m.indicador), titulo: (m.titulo as string) || "", alvo: num(m.alvo), atual: m.atual == null ? null : num(m.atual), unidade: (m.unidade as string) || "" })),
     treinos: treinos.map((t) => ({ id: num(t.id), data: String(t.data), tipo: String(t.tipo), numero: t.numero == null ? null : num(t.numero), duracao: t.duracao_min == null ? null : num(t.duracao_min), obs: (t.observacao as string) || "", origem: String(t.origem) })),
     rotinas: rotinas.map((r) => ({ id: num(r.id), nome: String(r.nome), dias: ((r.dias as number[]) ?? []).map(Number), ativa: !!r.ativa, ordem: r.ordem == null ? null : num(r.ordem), criado: diaLocal(String(r.criado_em)) })),
     marcas: marcas.map((m) => ({ rotina: num(m.rotina_id), data: String(m.data) })),
     ciclo,
-    agendaConectada: config.some((c) => c.chave === "agenda_ics"),
+    fichas,
+    agendaConectada: agenda.length > 0,
     livros: livros.map((l) => ({
       id: num(l.id), titulo: String(l.titulo), autor: (l.autor as string) || "", generos: (l.generos as string[]) ?? [], paginas: l.paginas == null ? null : num(l.paginas),
       status: String(l.status), inicio: (l.inicio as string) || null, fim: (l.fim as string) || null, nota: l.nota == null ? null : num(l.nota),
@@ -309,6 +312,9 @@ export const api = {
     await umRegistro(supabase.from("treinos").update({ ...campos, atualizado_em: new Date().toISOString() }).eq("id", id).select("id"));
   },
   async pesExcluirTreino(id: number) { await umRegistro(supabase.from("treinos").delete().eq("id", id).select("id")); },
+  async pesFichas(fichas: { tipo: string; foco: string; exercicios: string[] }[]) {
+    falhou((await supabase.from("pes_config").upsert({ chave: "treino_fichas", valor: fichas, atualizado_em: new Date().toISOString() })).error);
+  },
   async pesCiclo(nomes: string[]) {
     falhou((await supabase.from("pes_config").upsert({ chave: "treino_ciclo", valor: nomes, atualizado_em: new Date().toISOString() })).error);
   },

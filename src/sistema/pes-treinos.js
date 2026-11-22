@@ -1,7 +1,7 @@
 // Treinos: próximo treino do ciclo (Treino 1, 2, 3, 4...), contador sequencial, metas da semana e do
 // ano, mapa do ano, calendário do mês e histórico.
 import { S, fmtN0, fmtN1, esc, dBR, $, hojeISO, dataDe, addDias, MESES, SEM_CURTA, opt,
-  gradeMes, mudarMes, navMes, gravarPes, meta, barraMeta, cicloTreinos, proximoTreino, corTipo, siglaTipo, dialogo, diaPorExtenso } from './pes-comum.js';
+  gradeMes, mudarMes, navMes, gravarPes, meta, barraMeta, cicloTreinos, proximoTreino, corTipo, siglaTipo, dialogo, diaPorExtenso, numeroNoAno, fichaDe, rotuloTipo } from './pes-comum.js';
 
 const tf = { mes: hojeISO().slice(0,7), ano: new Date().getFullYear(), metaAberta:false, cicloAberto:false, todos:false };
 export function reiniciarTreinos(){ Object.assign(tf,{ mes: hojeISO().slice(0,7), ano: new Date().getFullYear(), metaAberta:false, cicloAberto:false, todos:false }); }
@@ -36,8 +36,9 @@ export function renderTreinos(){
     <div class="leit-topo">
       <div class="panel prox-treino">
         <span class="eyebrow">${fezHoje.length?'Treino de hoje':'Próximo treino'}</span>
-        ${fezHoje.length?fezHoje.map(t=>`<div class="pt-hoje"><span class="pt-tipo" style="--c:${corTipo(t.tipo)}">${esc(siglaTipo(t.tipo))}</span><div><h2 class="lendo-titulo">${esc(t.tipo)}${t.numero?` · nº ${fmtN0.format(t.numero)}`:''}</h2><span class="muted small">Feito hoje${t.duracao?` · ${t.duracao} min`:''}. Próximo: ${esc(prox.tipo)}.</span></div></div>`).join('')
-          :`<div class="pt-hoje"><span class="pt-tipo" style="--c:${corTipo(prox.tipo)}">${esc(siglaTipo(prox.tipo))}</span><div><h2 class="lendo-titulo">${esc(prox.tipo)}</h2><span class="muted small">Será o treino nº ${fmtN0.format(prox.numero)}${T.length?` · o último foi ${esc(T[T.length-1].tipo)} em ${dBR(T[T.length-1].data)}`:''}</span></div></div>
+        ${fezHoje.length?fezHoje.map(t=>`<div class="pt-hoje"><span class="pt-tipo" style="--c:${corTipo(t.tipo)}">${esc(siglaTipo(t.tipo))}</span><div><h2 class="lendo-titulo">${esc(t.tipo)}${t.numero?` · ${fmtN0.format(t.numero)}º do ano`:''}</h2><span class="muted small">Feito hoje${t.duracao?` · ${t.duracao} min`:''}. Próximo: ${esc(prox.tipo)}.</span></div></div>`).join('')
+          :`<div class="pt-hoje"><span class="pt-tipo" style="--c:${corTipo(prox.tipo)}">${esc(siglaTipo(prox.tipo))}</span><div><h2 class="lendo-titulo">${esc(prox.tipo)}${fichaDe(prox.tipo)?.foco?` <span class="muted">· ${esc(fichaDe(prox.tipo).foco)}</span>`:''}</h2><span class="muted small">Será o ${fmtN0.format(prox.numero)}º treino de ${ano}${T.length?` · o último foi em ${dBR(T[T.length-1].data)}`:''}</span></div></div>
+          ${htmlExercicios(prox.tipo)}
           <div class="toolbar"><button class="btn primary" type="button" id="pt-fiz">Fiz hoje</button><button class="btn" type="button" data-treino-novo="${hoje}">Outra data ou treino</button></div>`}
       </div>
       <div class="panel meta-card"><div class="panel-h"><span class="eyebrow">Metas de ${ano}</span>${tf.metaAberta?'':`<button class="linkbtn" type="button" id="pt-meta-ed">${mSem||mAno?'Editar':'Definir metas'}</button>`}</div>
@@ -57,6 +58,7 @@ export function renderTreinos(){
       <div class="panel kpi"><span class="eyebrow">Sequência</span><span class="big">${seq}</span><span class="sub">semana(s) seguidas com ${mSem?`${mSem}+ treinos`:'treino'}</span></div>
       <div class="panel kpi"><span class="eyebrow">Média por semana</span><span class="big">${fmtN1.format(doze.length/12)}</span><span class="sub">últimas 12 semanas</span></div>
     </div>
+    ${htmlFichas()}
     ${htmlMapaAno()}
     <div class="grid g-2 pt-baixo">
       ${htmlMesTreinos()}
@@ -64,6 +66,35 @@ export function renderTreinos(){
     </div>
   </div>`;
   ligar(v);
+}
+
+// Exercícios de um treino do ciclo (ficha), em lista compacta.
+const htmlExercicios = tipo => { const f=fichaDe(tipo); return f?.exercicios?.length ? `<ol class="pt-exs">${f.exercicios.map(x=>`<li>${esc(x)}</li>`).join('')}</ol>` : ''; };
+
+function htmlFichas(){
+  const c=cicloTreinos();
+  return `<div class="panel"><div class="panel-h"><h2>Fichas de treino</h2><span class="muted small">Os exercícios de cada treino do ciclo</span></div>
+    <div class="fichas-grade">${c.map(tipo=>{ const f=fichaDe(tipo);
+      return `<div class="ficha-treino" style="--c:${corTipo(tipo)}">
+        <div class="ficha-treino-h"><span class="pt-tipo peq">${esc(siglaTipo(tipo))}</span><div><b>${esc(tipo)}</b><span class="muted small">${esc(f?.foco||'')}</span></div><button class="icon-btn" type="button" data-ficha="${esc(tipo)}" aria-label="Editar ficha do ${esc(tipo)}">✎</button></div>
+        ${f?.exercicios?.length?htmlExercicios(tipo):'<p class="muted small">Sem exercícios. Clique no lápis para montar a ficha.</p>'}
+      </div>`; }).join('')}</div></div>`;
+}
+
+function abrirFicha(tipo){
+  const f=fichaDe(tipo)||{tipo,foco:'',exercicios:[]}, d=dialogo('pt-ficha-dlg','Ficha de treino');
+  d.innerHTML=`<form class="dlg-in" id="ptx">
+    <div class="ficha-topo"><h2>Ficha do ${esc(tipo)}</h2><button class="icon-btn" type="button" data-fechar aria-label="Fechar">✕</button></div>
+    <div class="field"><label for="ptx-foco">Foco</label><input type="text" id="ptx-foco" maxlength="60" value="${esc(f.foco)}" placeholder="Ex.: Costas e bíceps"></div>
+    <div class="field"><label for="ptx-ex">Exercícios (um por linha, na ordem)</label><textarea id="ptx-ex" rows="9" maxlength="3000">${esc(f.exercicios.join('\n'))}</textarea></div>
+    <div class="toolbar" style="justify-content:flex-end"><button class="btn" type="button" data-fechar>Cancelar</button><button class="btn primary" type="submit">Salvar</button></div>
+  </form>`;
+  if(!d.open) d.showModal();
+  d.querySelectorAll('[data-fechar]').forEach(b=>b.onclick=()=>d.close());
+  $('ptx').onsubmit=e=>{ e.preventDefault();
+    const nova={tipo, foco:$('ptx-foco').value.trim().slice(0,60), exercicios:$('ptx-ex').value.split('\n').map(x=>x.trim()).filter(Boolean).slice(0,30).map(x=>x.slice(0,80))};
+    const lista=[...(S.P.fichas||[]).filter(x=>x.tipo!==tipo&&cicloTreinos().includes(x.tipo)), nova].sort((a,b)=>cicloTreinos().indexOf(a.tipo)-cicloTreinos().indexOf(b.tipo)).slice(0,10);
+    d.close(); gravarPes(()=>S.api.pesFichas(lista),'Ficha salva.'); };
 }
 
 function htmlCiclo(){
@@ -91,7 +122,7 @@ function htmlMapaAno(){
         const ts=porDia.get(d); return ts?`<i class="on" style="--c:${corTipo(ts[0].tipo)}" data-treino-dia="${d}" data-tip="${esc(dBR(d))}<br><b>${esc(ts.map(t=>t.tipo+(t.numero?' · nº '+t.numero:'')).join(' + '))}</b>"></i>`
           :`<i class="${d>hoje?'futuro':''}" data-treino-novo="${d<=hoje?d:''}" data-tip="${esc(dBR(d))} · sem treino"></i>`; }).join('')).join('')}</div>
     </div></div>
-    <div class="legenda">${[...porTipo.entries()].sort((x,y)=>x[0].localeCompare(y[0],'pt-BR',{numeric:true})).map(([t,n])=>`<span><i style="background:${corTipo(t)}"></i>${esc(t)} · ${n}</span>`).join('')}<span class="muted">${fmtN0.format(porDia.size)} dias com treino</span></div>
+    <div class="legenda">${[...porTipo.entries()].sort((x,y)=>x[0].localeCompare(y[0],'pt-BR',{numeric:true})).map(([t,n])=>`<span><i style="background:${corTipo(t)}"></i>${esc(rotuloTipo(t))} · ${n}</span>`).join('')}<span class="muted">${fmtN0.format(porDia.size)} dias com treino</span></div>
   </div>`;
 }
 
@@ -118,11 +149,12 @@ function htmlHistorico(){
 
 function ligar(v){
   v.onclick=e=>{
-    const t=e.target.closest('[data-treino],[data-treino-novo],[data-treino-dia],[data-pt-mes],#pt-fiz,#pt-todos,#pt-ciclo-ed,#pt-ciclo-x,#pt-meta-ed,#pt-meta-x');
+    const t=e.target.closest('[data-ficha],[data-treino],[data-treino-novo],[data-treino-dia],[data-pt-mes],#pt-fiz,#pt-todos,#pt-ciclo-ed,#pt-ciclo-x,#pt-meta-ed,#pt-meta-x');
     if(!t||!v.contains(t)) return;
     if(t.dataset.ptMes!=null){ const n=+t.dataset.ptMes; tf.mes=n?mudarMes(tf.mes,n):hojeISO().slice(0,7); renderTreinos(); return; }
     if(t.id==='pt-fiz'){ const p=proximoTreino(); gravarPes(()=>S.api.pesTreino(null,{data:hojeISO(), tipo:p.tipo, numero:p.numero, duracao_min:null, observacao:null}), `${p.tipo} registrado. Treino nº ${p.numero}!`); return; }
     if(t.id==='pt-todos'){ tf.todos=!tf.todos; renderTreinos(); return; }
+    if(t.dataset.ficha) return abrirFicha(t.dataset.ficha);
     if(t.id==='pt-ciclo-ed'){ tf.cicloAberto=!tf.cicloAberto; renderTreinos(); return; }
     if(t.id==='pt-ciclo-x'){ tf.cicloAberto=false; renderTreinos(); return; }
     if(t.id==='pt-meta-ed'){ tf.metaAberta=true; renderTreinos(); return; }
@@ -153,12 +185,13 @@ export function abrirTreino(id, dataPadrao){
     <div class="ficha-topo"><h2>${novo?'Registrar treino':'Treino'}</h2><button class="icon-btn" type="button" data-fechar aria-label="Fechar">✕</button></div>
     <span class="muted small">${diaPorExtenso(t.data)}</span>
     <div class="pt-escolha" role="group" aria-label="Treino">${c.map(x=>`<button type="button" data-tipo="${esc(x)}" aria-pressed="${x===t.tipo}" style="--c:${corTipo(x)}">${esc(x)}</button>`).join('')}</div>
+    <div id="ptf-ficha">${htmlExercicios(t.tipo)}</div>
     <div class="form-row">
       <div class="field"><label for="ptf-tipo">Treino</label><input type="text" id="ptf-tipo" maxlength="60" required value="${esc(t.tipo)}"></div>
       <div class="field" style="flex:0 1 150px"><label for="ptf-data">Data</label><input type="date" id="ptf-data" required value="${t.data}" max="${addDias(hojeISO(),1)}"></div>
     </div>
     <div class="form-row">
-      <div class="field" style="flex:0 1 120px"><label for="ptf-num">Nº do treino</label><input type="number" id="ptf-num" min="1" value="${t.numero??''}"></div>
+      <div class="field" style="flex:0 1 120px"><label for="ptf-num">Nº no ano</label><input type="number" id="ptf-num" min="1" value="${t.numero??''}"></div>
       <div class="field" style="flex:0 1 120px"><label for="ptf-dur">Duração (min)</label><input type="number" id="ptf-dur" min="1" max="600" value="${t.duracao??''}"></div>
     </div>
     <div class="field"><label for="ptf-obs">Observações</label><textarea id="ptf-obs" rows="3" maxlength="2000" placeholder="Cargas, como se sentiu…">${esc(t.obs)}</textarea></div>
@@ -166,7 +199,9 @@ export function abrirTreino(id, dataPadrao){
   </form>`;
   if(!d.open) d.showModal();
   d.querySelectorAll('[data-fechar]').forEach(b=>b.onclick=()=>d.close());
-  d.querySelectorAll('[data-tipo]').forEach(b=>b.onclick=()=>{ $('ptf-tipo').value=b.dataset.tipo; d.querySelectorAll('[data-tipo]').forEach(x=>x.setAttribute('aria-pressed',String(x===b))); });
+  d.querySelectorAll('[data-tipo]').forEach(b=>b.onclick=()=>{ $('ptf-tipo').value=b.dataset.tipo; $('ptf-ficha').innerHTML=htmlExercicios(b.dataset.tipo); d.querySelectorAll('[data-tipo]').forEach(x=>x.setAttribute('aria-pressed',String(x===b))); });
+  if(novo){ let mexeu=false; $('ptf-num').oninput=()=>{ mexeu=true; };
+    $('ptf-data').onchange=()=>{ const v=$('ptf-data').value; if(v&&!mexeu) $('ptf-num').value=numeroNoAno(v.slice(0,4)); }; }
   if($('ptf-exc')) $('ptf-exc').onclick=()=>{ if(!confirm(`Excluir o ${t.tipo} de ${dBR(t.data)}?`)) return; d.close(); gravarPes(()=>S.api.pesExcluirTreino(t.id),'Treino excluído.'); };
   $('ptf').onsubmit=e=>{ e.preventDefault();
     const num=$('ptf-num').value?Math.round(+$('ptf-num').value):null, dur=$('ptf-dur').value?Math.round(+$('ptf-dur').value):null;

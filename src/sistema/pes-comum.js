@@ -102,14 +102,17 @@ export function cicloTreinos(){
   const tipos=[...new Set(S.P.treinos.map(t=>t.tipo))].sort((a,b)=>a.localeCompare(b,'pt-BR',{numeric:true}));
   return tipos.length ? tipos.slice(0,8) : ['Treino 1','Treino 2','Treino 3','Treino 4'];
 }
+// A numeração recomeça a cada ano, como no Notion (1º treino de 2026, 2º...).
+export const numeroNoAno = ano => { const T=S.P.treinos.filter(t=>+t.data.slice(0,4)===+ano); return Math.max(T.length, ...T.map(t=>t.numero||0))+1; };
 export function proximoTreino(){
-  const c=cicloTreinos(), T=S.P.treinos, ult=T[T.length-1];
+  const c=cicloTreinos(), T=S.P.treinos, ult=[...T].reverse().find(t=>c.includes(t.tipo));
   const i=ult?c.indexOf(ult.tipo):-1;
-  const numero=Math.max(0,...T.map(t=>t.numero||0))+1;
-  return { tipo: c[(i+1)%c.length], numero: Math.max(numero, T.length+1) };
+  return { tipo: c[(i+1)%c.length], numero: numeroNoAno(new Date().getFullYear()) };
 }
+export const fichaDe = tipo => (S.P.fichas||[]).find(f=>f.tipo===tipo) ?? null;
+export const rotuloTipo = tipo => tipo==='Treino' ? 'Sem tipo (Notion)' : tipo;
 export const corTipo = tipo => { const i=cicloTreinos().indexOf(tipo); return i<0 ? 'var(--ink-3)' : `var(--s${i%4+1})`; };
-export const siglaTipo = tipo => { const m=String(tipo).match(/(\d+)\s*$/); return m ? 'T'+m[1] : String(tipo).slice(0,3); };
+export const siglaTipo = tipo => { const m=String(tipo).match(/(\d+)\s*$/); return m ? 'T'+m[1] : String(tipo).slice(0,1).toUpperCase(); };
 
 // Rotinas: valem no dia da semana escolhido e só depois de criadas.
 export const rotinasDoDia = dia => S.P.rotinas.filter(r=>r.ativa && r.dias.includes(dataDe(dia).getDay()) && (!r.criado || r.criado<=dia));
